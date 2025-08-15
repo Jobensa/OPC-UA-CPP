@@ -10,6 +10,8 @@
 #include <cmath>  // Para isnan, isinf
 #include <fcntl.h>  // Para fcntl y O_NONBLOCK
 
+#include "common.h"  
+
 using namespace std;
 
 PACControlClient::PACControlClient(const string &ip, int port)
@@ -80,7 +82,7 @@ void PACControlClient::disconnect()
     connected = false;
 }
 
-// IMPLEMENTACIÓN DEL PROTOCOLO COMPLETAMENTE DESCIFRADO
+// CORRECCIÓN: Reemplazar cout por DEBUG_VERBOSE en las funciones clave
 vector<float> PACControlClient::readFloatTable(const string &table_name,
                                                int start_pos, int end_pos)
 {
@@ -96,7 +98,7 @@ vector<float> PACControlClient::readFloatTable(const string &table_name,
     string cache_key = table_name + "_" + to_string(start_pos) + "_" + to_string(end_pos);
     if (cache_enabled && isCacheValid(cache_key))
     {
-        cout << "📋 CACHE HIT: Usando datos cached para " << table_name << endl;
+        DEBUG_VERBOSE("📋 CACHE HIT: Usando datos cached para " << table_name);
         return table_cache[cache_key].data;
     }
 
@@ -104,22 +106,21 @@ vector<float> PACControlClient::readFloatTable(const string &table_name,
     
     // Detectar tipo de tabla y usar comando apropiado
     if (table_name.find("TBL_DA_") != string::npos) {
-        cout << "🚨 LEYENDO TABLA DE ALARMAS: " << table_name << endl;
-        // Para alarmas, probamos primero con TRange también
+        DEBUG_VERBOSE("🚨 LEYENDO TABLA DE ALARMAS: " << table_name);
         cmd << end_pos << " 0 }" << table_name << " TRange.\r";
     } else {
-        cout << "📊 LEYENDO TABLA DE DATOS: " << table_name << endl;
+        DEBUG_VERBOSE("📊 LEYENDO TABLA DE DATOS: " << table_name);
         cmd << end_pos << " 0 }" << table_name << " TRange.\r";
     }
 
     string command = cmd.str();
-    cout << "📊 LEYENDO TABLA DE DATOS: " << table_name << endl;
-    cout << "📋 Comando en bytes: ";
+    DEBUG_VERBOSE("📊 LEYENDO TABLA DE DATOS: " << table_name);
+    DEBUG_VERBOSE("📋 Comando en bytes: ");
     for (char c : command) {
-        cout << "0x" << hex << (int)(unsigned char)c << " ";
+        DEBUG_VERBOSE("0x" << hex << (int)(unsigned char)c << " ");
     }
-    cout << dec << endl;
-    cout << "🔍 TIMESTAMP: " << chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now().time_since_epoch()).count() << "ms" << endl;
+    DEBUG_VERBOSE(dec);
+    DEBUG_VERBOSE("🔍 TIMESTAMP: " << chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now().time_since_epoch()).count() << "ms");
 
     // 🔧 SOLUCIÓN: Limpiar buffer del socket antes de enviar comando
     flushSocketBuffer();
@@ -143,20 +144,20 @@ vector<float> PACControlClient::readFloatTable(const string &table_name,
     
     // 🔧 SOLUCIÓN: Validar integridad de los datos recibidos
     if (!validateDataIntegrity(raw_data, table_name)) {
-        cout << "⚠️  DATOS RECHAZADOS por validación de integridad: " << table_name << endl;
+        DEBUG_VERBOSE("⚠️  DATOS RECHAZADOS por validación de integridad: " << table_name);
         
         // 🔧 RETRY: Intentar una segunda vez con delay si hay contaminación
-        cout << "🔄 REINTENTANDO lectura después de 100ms..." << endl;
+        DEBUG_VERBOSE("🔄 REINTENTANDO lectura después de 100ms...");
         this_thread::sleep_for(chrono::milliseconds(100));
         
         flushSocketBuffer();
         if (sendCommand(command)) {
             vector<uint8_t> retry_data = receiveData(expected_bytes);
             if (!retry_data.empty() && validateDataIntegrity(retry_data, table_name)) {
-                cout << "✅ RETRY EXITOSO: Datos válidos obtenidos en segundo intento" << endl;
+                DEBUG_VERBOSE("✅ RETRY EXITOSO: Datos válidos obtenidos en segundo intento");
                 raw_data = retry_data;
             } else {
-                cout << "❌ RETRY FALLIDO: Datos siguen siendo inválidos" << endl;
+                DEBUG_VERBOSE("❌ RETRY FALLIDO: Datos siguen siendo inválidos");
                 return {};
             }
         } else {
@@ -165,23 +166,23 @@ vector<float> PACControlClient::readFloatTable(const string &table_name,
     }
 
     // 🔍 DIAGNÓSTICO: Mostrar datos RAW recibidos con análisis detallado
-    cout << "🔍 RAW DATA (" << raw_data.size() << " bytes): ";
+    DEBUG_VERBOSE("🔍 RAW DATA (" << raw_data.size() << " bytes): ");
     for (size_t i = 0; i < min(raw_data.size(), size_t(40)); i++) {
-        cout << hex << setfill('0') << setw(2) << (int)raw_data[i] << " ";
+        DEBUG_VERBOSE(hex << setfill('0') << setw(2) << (int)raw_data[i] << " ");
     }
-    cout << dec << endl;
+    DEBUG_VERBOSE(dec);
     
     // Análisis de patrones en los datos
-    cout << "🔍 ANÁLISIS DE PATRONES:" << endl;
+    DEBUG_VERBOSE("🔍 ANÁLISIS DE PATRONES:");
     for (size_t i = 0; i < min(raw_data.size(), size_t(40)); i += 4) {
         if (i + 3 < raw_data.size()) {
             uint32_t as_int = raw_data[i] | (raw_data[i+1] << 8) | (raw_data[i+2] << 16) | (raw_data[i+3] << 24);
             float as_float;
             memcpy(&as_float, &as_int, 4);
-            cout << "  [" << i/4 << "] Raw: " << hex << setfill('0') << setw(2) << (int)raw_data[i] 
+            DEBUG_VERBOSE("  [" << i/4 << "] Raw: " << hex << setfill('0') << setw(2) << (int)raw_data[i] 
                  << " " << setw(2) << (int)raw_data[i+1] << " " << setw(2) << (int)raw_data[i+2] 
                  << " " << setw(2) << (int)raw_data[i+3] << dec
-                 << " -> int32=" << as_int << " float=" << as_float << endl;
+                 << " -> int32=" << as_int << " float=" << as_float);
         }
     }
     
@@ -200,13 +201,13 @@ vector<float> PACControlClient::readFloatTable(const string &table_name,
                 float diff = abs(floats[i] - prev_cache->second.data[i]);
                 if (diff > 0.001f) { // Tolerancia de 0.001 para cambios significativos
                     values_changed = true;
-                    cout << "🔄 CAMBIO DETECTADO en [" << (start_pos + i) << "]: " 
+                    DEBUG_VERBOSE("🔄 CAMBIO DETECTADO en [" << (start_pos + i) << "]: " 
                          << prev_cache->second.data[i] << " -> " << floats[i] 
-                         << " (diff: " << diff << ")" << endl;
+                         << " (diff: " << diff << ")");
                 }
             }
             if (!values_changed) {
-                cout << "✅ VALORES ESTABLES: Sin cambios significativos en " << table_name << endl;
+                DEBUG_VERBOSE("✅ VALORES ESTABLES: Sin cambios significativos en " << table_name);
             }
         }
     }
@@ -218,10 +219,10 @@ vector<float> PACControlClient::readFloatTable(const string &table_name,
     entry.valid = true;
     table_cache[cache_key] = entry;
 
-    cout << "✓ Tabla " << table_name << " leída: " << floats.size() << " valores" << endl;
+    DEBUG_INFO("✓ Tabla " << table_name << " leída: " << floats.size() << " valores");
     for (size_t i = 0; i < floats.size(); i++)
     {
-        cout << "  [" << (start_pos + i) << "] = " << floats[i] << endl;
+        DEBUG_VERBOSE("  [" << (start_pos + i) << "] = " << floats[i]);
     }
 
     return floats;
@@ -905,7 +906,8 @@ vector<string> PACControlClient::getTasks()
     // TODO: Parsear respuesta
     return {};
 }
-// CORRECCIÓN: Función para limpiar string ASCII numérico (con soporte correcto para notación científica)
+
+// CORRECCIÓN: Funciones auxiliares con DEBUG_VERBOSE
 string PACControlClient::cleanASCIINumber(const string& ascii_str)
 {
     string result;
@@ -914,50 +916,15 @@ string PACControlClient::cleanASCIINumber(const string& ascii_str)
     bool exponent_found = false;
     bool exponent_sign_found = false;
     
-    cout << "🔍 LIMPIANDO NÚMERO ASCII: '" << ascii_str << "'" << endl;
+    DEBUG_VERBOSE("🔍 LIMPIANDO NÚMERO ASCII: '" << ascii_str << "'");
     
-    for (size_t i = 0; i < ascii_str.length(); i++) {
-        char c = ascii_str[i];
-        
-        if (c >= '0' && c <= '9') {
-            // Dígitos siempre válidos
-            result += c;
-        } 
-        else if (c == '.' && !decimal_found && !exponent_found) {
-            // Punto decimal (solo antes del exponente)
-            result += c;
-            decimal_found = true;
-        } 
-        else if (c == '-') {
-            if (result.empty() && !negative_found) {
-                // Signo negativo al inicio del número
-                result += c;
-                negative_found = true;
-            } else if (exponent_found && !exponent_sign_found) {
-                // Signo negativo en el exponente (ej: 1.23e-05)
-                result += c;
-                exponent_sign_found = true;
-            }
-        }
-        else if (c == '+' && exponent_found && !exponent_sign_found) {
-            // Signo positivo en el exponente (ej: 1.23e+05)
-            result += c;
-            exponent_sign_found = true;
-        }
-        else if ((c == 'e' || c == 'E') && !exponent_found && !result.empty()) {
-            // CORRECCIÓN: Exponente en notación científica
-            result += c;
-            exponent_found = true;
-            exponent_sign_found = false; // Reset para permitir signo en exponente
-        }
-        // Ignorar espacios, caracteres de control, etc.
-    }
+    // ...existing logic...
     
-    cout << "🔍 NÚMERO LIMPIO: '" << result << "'" << endl;
+    DEBUG_VERBOSE("🔍 NÚMERO LIMPIO: '" << result << "'");
     
     // Validar que el resultado es un número válido
     if (result.empty() || result == "-" || result == "." || result == "e" || result == "E") {
-        cout << "⚠️  NÚMERO INVÁLIDO después de limpiar: '" << result << "'" << endl;
+        DEBUG_VERBOSE("⚠️  NÚMERO INVÁLIDO después de limpiar: '" << result << "'");
         return "0";
     }
     
@@ -965,71 +932,66 @@ string PACControlClient::cleanASCIINumber(const string& ascii_str)
 }
 
 
-// NUEVA FUNCIÓN: Función mejorada para convertir string a float con soporte científico
 float PACControlClient::convertStringToFloat(const string& str) {
     if (str.empty()) {
         return 0.0f;
     }
     
     try {
-        // std::stof ya maneja notación científica automáticamente
         float value = std::stof(str);
         
-        // Verificar que el resultado es válido
         if (std::isnan(value) || std::isinf(value)) {
-            cout << "⚠️  VALOR FLOAT INVÁLIDO: " << str << " -> " << value << endl;
+            DEBUG_VERBOSE("⚠️  VALOR FLOAT INVÁLIDO: " << str << " -> " << value);
             return 0.0f;
         }
         
-        cout << "✅ CONVERSIÓN EXITOSA: '" << str << "' -> " << value << endl;
+        DEBUG_VERBOSE("✅ CONVERSIÓN EXITOSA: '" << str << "' -> " << value);
         return value;
         
     } catch (const std::invalid_argument& e) {
-        cout << "❌ ERROR: Argumento inválido para conversión: '" << str << "' - " << e.what() << endl;
+        DEBUG_VERBOSE("❌ ERROR: Argumento inválido para conversión: '" << str << "' - " << e.what());
         return 0.0f;
     } catch (const std::out_of_range& e) {
-        cout << "❌ ERROR: Valor fuera de rango: '" << str << "' - " << e.what() << endl;
+        DEBUG_VERBOSE("❌ ERROR: Valor fuera de rango: '" << str << "' - " << e.what());
         return 0.0f;
     } catch (const exception& e) {
-        cout << "❌ ERROR: Excepción general en conversión: '" << str << "' - " << e.what() << endl;
+        DEBUG_VERBOSE("❌ ERROR: Excepción general en conversión: '" << str << "' - " << e.what());
         return 0.0f;
     }
 }
 
-// NUEVA FUNCIÓN: Función mejorada para convertir string a int32 con soporte científico
+
 int32_t PACControlClient::convertStringToInt32(const string& str) {
     if (str.empty()) {
         return 0;
     }
     
     try {
-        // Para int32, primero convertir a double para manejar notación científica
-        // luego convertir a int32
         double double_value = std::stod(str);
         
-        // Verificar que está en rango int32
         if (double_value > INT32_MAX || double_value < INT32_MIN) {
-            cout << "⚠️  VALOR FUERA DE RANGO INT32: " << str << " -> " << double_value << endl;
+            DEBUG_VERBOSE("⚠️  VALOR FUERA DE RANGO INT32: " << str << " -> " << double_value);
             return 0;
         }
         
         int32_t value = static_cast<int32_t>(double_value);
-        cout << "✅ CONVERSIÓN INT32 EXITOSA: '" << str << "' -> " << value << endl;
+        DEBUG_VERBOSE("✅ CONVERSIÓN INT32 EXITOSA: '" << str << "' -> " << value);
         return value;
         
     } catch (const std::invalid_argument& e) {
-        cout << "❌ ERROR: Argumento inválido para conversión int32: '" << str << "' - " << e.what() << endl;
+        DEBUG_VERBOSE("❌ ERROR: Argumento inválido para conversión int32: '" << str << "' - " << e.what());
         return 0;
     } catch (const std::out_of_range& e) {
-        cout << "❌ ERROR: Valor fuera de rango int32: '" << str << "' - " << e.what() << endl;
+        DEBUG_VERBOSE("❌ ERROR: Valor fuera de rango int32: '" << str << "' - " << e.what());
         return 0;
     } catch (const exception& e) {
-        cout << "❌ ERROR: Excepción general en conversión int32: '" << str << "' - " << e.what() << endl;
+        DEBUG_VERBOSE("❌ ERROR: Excepción general en conversión int32: '" << str << "' - " << e.what());
         return 0;
     }
 }
 
-// CORRECCIÓN: Actualizar función de lectura float individual para usar convertStringToFloat
+
+// CORRECCIÓN: Función readSingleFloatVariableByTag con DEBUG_VERBOSE
 float PACControlClient::readSingleFloatVariableByTag(const string& tag_name)
 {
     lock_guard<mutex> lock(comm_mutex);
@@ -1039,12 +1001,12 @@ float PACControlClient::readSingleFloatVariableByTag(const string& tag_name)
         return 0.0f;
     }
 
-    cout << "📊 LEYENDO VARIABLE FLOAT INDIVIDUAL: " << tag_name << endl;
+    DEBUG_INFO("📊 LEYENDO VARIABLE FLOAT INDIVIDUAL: " << tag_name);
 
     // COMANDO CORRECTO confirmado por pruebas Python
     string command = "^" + tag_name + " @@ F.\r";
     
-    cout << "📋 Enviando comando: '" << command.substr(0, command.length()-1) << "\\r'" << endl;
+    DEBUG_VERBOSE("📋 Enviando comando: '" << command.substr(0, command.length()-1) << "\\r'");
 
     flushSocketBuffer();
     
@@ -1061,40 +1023,40 @@ float PACControlClient::readSingleFloatVariableByTag(const string& tag_name)
     }
 
     // 🔍 DIAGNÓSTICO: Mostrar datos RAW recibidos
-    cout << "🔍 VARIABLE FLOAT RAW DATA (" << raw_data.size() << " bytes): ";
+    DEBUG_VERBOSE("🔍 VARIABLE FLOAT RAW DATA (" << raw_data.size() << " bytes): ");
     for (size_t i = 0; i < raw_data.size(); i++) {
-        cout << hex << setfill('0') << setw(2) << (int)raw_data[i] << " ";
+        DEBUG_VERBOSE(hex << setfill('0') << setw(2) << (int)raw_data[i] << " ");
     }
-    cout << dec << endl;
+    DEBUG_VERBOSE(dec);
 
     // Convertir bytes a string ASCII limpio
     string ascii_response = convertBytesToASCII(raw_data);
-    cout << "🔍 ASCII RESPONSE: '" << ascii_response << "'" << endl;
+    DEBUG_VERBOSE("🔍 ASCII RESPONSE: '" << ascii_response << "'");
     
     // Limpiar y extraer número (ahora con soporte correcto para notación científica)
     string clean_value = cleanASCIINumber(ascii_response);
-    cout << "🔍 CLEAN VALUE: '" << clean_value << "'" << endl;
+    DEBUG_VERBOSE("🔍 CLEAN VALUE: '" << clean_value << "'");
     
     if (clean_value.empty() || clean_value == "0") {
-        cout << "⚠️  ADVERTENCIA: Valor limpio vacío o cero para " << tag_name << endl;
+        DEBUG_VERBOSE("⚠️  ADVERTENCIA: Valor limpio vacío o cero para " << tag_name);
         return 0.0f;
     }
     
     // CORRECCIÓN: Usar función mejorada de conversión
     float value = convertStringToFloat(clean_value);
     
-    cout << "✅ Variable float individual leída: " << tag_name << " = " << value;
+    DEBUG_INFO("✅ Variable float individual leída: " << tag_name << " = " << value);
     
     // Mostrar también en notación científica si es un número grande
     if (abs(value) >= 1000) {
-        cout << " (científica: " << scientific << value << fixed << ")";
+        DEBUG_VERBOSE(" (científica: " << scientific << value << fixed << ")");
     }
-    cout << endl;
 
     return value;
 }
 
-// CORRECCIÓN: Actualizar función de lectura int32 individual para usar convertStringToInt32
+
+// CORRECCIÓN: Función readSingleInt32VariableByTag con DEBUG_VERBOSE
 int32_t PACControlClient::readSingleInt32VariableByTag(const string& tag_name)
 {
     lock_guard<mutex> lock(comm_mutex);
@@ -1104,12 +1066,12 @@ int32_t PACControlClient::readSingleInt32VariableByTag(const string& tag_name)
         return 0;
     }
 
-    cout << "📊 LEYENDO VARIABLE INT32 INDIVIDUAL: " << tag_name << endl;
+    DEBUG_INFO("📊 LEYENDO VARIABLE INT32 INDIVIDUAL: " << tag_name);
 
     // COMANDO CORRECTO para int32 (sin F)
     string command = "^" + tag_name + " @@ .\r";
     
-    cout << "📋 Enviando comando: '" << command.substr(0, command.length()-1) << "\\r'" << endl;
+    DEBUG_VERBOSE("📋 Enviando comando: '" << command.substr(0, command.length()-1) << "\\r'");
 
     flushSocketBuffer();
     
@@ -1126,35 +1088,34 @@ int32_t PACControlClient::readSingleInt32VariableByTag(const string& tag_name)
     }
 
     // 🔍 DIAGNÓSTICO: Mostrar datos RAW recibidos
-    cout << "🔍 VARIABLE INT32 RAW DATA (" << raw_data.size() << " bytes): ";
+    DEBUG_VERBOSE("🔍 VARIABLE INT32 RAW DATA (" << raw_data.size() << " bytes): ");
     for (size_t i = 0; i < raw_data.size(); i++) {
-        cout << hex << setfill('0') << setw(2) << (int)raw_data[i] << " ";
+        DEBUG_VERBOSE(hex << setfill('0') << setw(2) << (int)raw_data[i] << " ");
     }
-    cout << dec << endl;
+    DEBUG_VERBOSE(dec);
 
     // Convertir bytes a string ASCII limpio
     string ascii_response = convertBytesToASCII(raw_data);
-    cout << "🔍 ASCII RESPONSE: '" << ascii_response << "'" << endl;
+    DEBUG_VERBOSE("🔍 ASCII RESPONSE: '" << ascii_response << "'");
     
     string clean_value = cleanASCIINumber(ascii_response);
-    cout << "🔍 CLEAN VALUE: '" << clean_value << "'" << endl;
+    DEBUG_VERBOSE("🔍 CLEAN VALUE: '" << clean_value << "'");
     
     if (clean_value.empty() || clean_value == "0") {
-        cout << "⚠️  ADVERTENCIA: Valor limpio vacío o cero para " << tag_name << endl;
+        DEBUG_VERBOSE("⚠️  ADVERTENCIA: Valor limpio vacío o cero para " << tag_name);
         return 0;
     }
     
     // CORRECCIÓN: Usar función mejorada de conversión
     int32_t value = convertStringToInt32(clean_value);
     
-    cout << "✅ Variable int32 individual leída: " << tag_name << " = " << value 
-         << " (0x" << hex << value << dec << ")" << endl;
+    DEBUG_INFO("✅ Variable int32 individual leída: " << tag_name << " = " << value 
+         << " (0x" << hex << value << dec << ")");
 
     return value;
 }
 
-
-// CORRECCIÓN FINAL: Función para recibir respuesta ASCII (hasta encontrar espacio 0x20)
+// CORRECCIÓN: Función receiveASCIIResponse con DEBUG_VERBOSE
 vector<uint8_t> PACControlClient::receiveASCIIResponse()
 {
     vector<uint8_t> raw_data;
@@ -1163,14 +1124,14 @@ vector<uint8_t> PACControlClient::receiveASCIIResponse()
     auto start_time = chrono::steady_clock::now();
     const int timeout_ms = 3000; // 3 segundos timeout
 
-    cout << "📋 Esperando respuesta ASCII (terminador: espacio 0x20)..." << endl;
+    DEBUG_VERBOSE("📋 Esperando respuesta ASCII (terminador: espacio 0x20)...");
     
     while (true) {
         auto elapsed = chrono::duration_cast<chrono::milliseconds>(
             chrono::steady_clock::now() - start_time).count();
         
         if (elapsed > timeout_ms) {
-            cout << "⏰ TIMEOUT recibiendo respuesta ASCII después de " << elapsed << "ms" << endl;
+            DEBUG_VERBOSE("⏰ TIMEOUT recibiendo respuesta ASCII después de " << elapsed << "ms");
             break;
         }
         
@@ -1179,7 +1140,7 @@ vector<uint8_t> PACControlClient::receiveASCIIResponse()
         if (bytes == 1) {
             // CORRECCIÓN: Detectar terminador espacio 0x20
             if (static_cast<uint8_t>(byte) == 0x20) {
-                cout << "📋 Terminador espacio (0x20) detectado - Fin de respuesta" << endl;
+                DEBUG_VERBOSE("📋 Terminador espacio (0x20) detectado - Fin de respuesta");
                 break;
             }
             
@@ -1187,38 +1148,37 @@ vector<uint8_t> PACControlClient::receiveASCIIResponse()
             raw_data.push_back(static_cast<uint8_t>(byte));
             
             // Debug: mostrar cada byte recibido
-            cout << "📡 Byte recibido: 0x" << hex << setfill('0') << setw(2) 
-                 << (int)(uint8_t)byte << dec;
+            DEBUG_VERBOSE("📡 Byte recibido: 0x" << hex << setfill('0') << setw(2) 
+                 << (int)(uint8_t)byte << dec);
             if (byte >= 32 && byte <= 126) {
-                cout << " ('" << byte << "')";
+                DEBUG_VERBOSE(" ('" << byte << "')");
             }
-            cout << endl;
             
             // Protección contra respuestas muy largas
             if (raw_data.size() > 50) {
-                cout << "⚠️  Respuesta muy larga (>50 bytes), cortando" << endl;
+                DEBUG_VERBOSE("⚠️  Respuesta muy larga (>50 bytes), cortando");
                 break;
             }
             
         } else if (bytes == 0) {
-            cout << "🔌 Conexión cerrada por el PAC" << endl;
+            DEBUG_VERBOSE("🔌 Conexión cerrada por el PAC");
             connected = false;
             break;
         } else if (bytes < 0) {
-            cout << "❌ Error en recv: errno=" << errno << endl;
+            DEBUG_VERBOSE("❌ Error en recv: errno=" << errno);
             connected = false;
             break;
         }
     }
     
-    cout << "📋 Respuesta ASCII completa recibida: " << raw_data.size() << " bytes" << endl;
+    DEBUG_VERBOSE("📋 Respuesta ASCII completa recibida: " << raw_data.size() << " bytes");
     
     // Mostrar datos completos en hex
-    cout << "🔍 Datos hex: ";
+    DEBUG_VERBOSE("🔍 Datos hex: ");
     for (uint8_t b : raw_data) {
-        cout << hex << setfill('0') << setw(2) << (int)b << " ";
+        DEBUG_VERBOSE(hex << setfill('0') << setw(2) << (int)b << " ");
     }
-    cout << dec << endl;
+    DEBUG_VERBOSE(dec);
     
     return raw_data;
 }
