@@ -1235,3 +1235,130 @@ string PACControlClient::sendRawCommand(const string &command)
 
     return receiveResponse();
 }
+
+// Escribe un valor float en una variable individual del PAC
+bool PACControlClient::writeSingleFloatVariable(const std::string& variable_name, float value) {
+    lock_guard<mutex> lock(comm_mutex);
+
+    if (!connected) {
+        cerr << "No conectado al PAC" << endl;
+        return false;
+    }
+
+    // Formato: <valor> ^<variable> @!\r
+    std::ostringstream cmd;
+    cmd << std::setprecision(7) << value << " ^" << variable_name << " @!\r";
+    std::string command = cmd.str();
+
+    DEBUG_INFO("Comando de Escritura FLOAT: " << command);
+
+    flushSocketBuffer();
+
+    if (!sendCommand(command)) {
+        cerr << "Error enviando comando de escritura float" << endl;
+        return false;
+    }
+
+    // Leer respuesta (puedes ajustar el tamaño si lo deseas)
+    char response[64] = {0};
+    ssize_t bytes = recv(sock, response, sizeof(response), 0);
+
+    DEBUG_INFO("Respuesta escritura FLOAT: " << std::string(response, (bytes > 0 ? bytes : 0)));
+
+    return bytes > 0;
+}
+
+// Escribe un valor int32 en una variable individual del PAC
+bool PACControlClient::writeSingleInt32Variable(const std::string& variable_name, int32_t value) {
+    lock_guard<mutex> lock(comm_mutex);
+
+    if (!connected) {
+        cerr << "No conectado al PAC" << endl;
+        return false;
+    }
+
+    // Formato: <valor> ^<variable> @!\r
+    std::ostringstream cmd;
+    cmd << value << " ^" << variable_name << " @!\r";
+    std::string command = cmd.str();
+
+    DEBUG_INFO("Comando de Escritura INT32: " << command);
+
+    flushSocketBuffer();
+
+    if (!sendCommand(command)) {
+        cerr << "Error enviando comando de escritura int32" << endl;
+        return false;
+    }
+
+    char response[64] = {0};
+    ssize_t bytes = recv(sock, response, sizeof(response), 0);
+
+    DEBUG_INFO("Respuesta escritura INT32: " << std::string(response, (bytes > 0 ? bytes : 0)));
+
+    return bytes > 0;
+}
+
+// Escribe un valor float en una tabla del PAC en un índice específico
+bool PACControlClient::writeFloatTableIndex(const std::string& table_name, int index, float value) {
+    lock_guard<mutex> lock(comm_mutex);
+
+    if (!connected) {
+        cerr << "No conectado al PAC" << endl;
+        return false;
+    }
+
+    // Formato: <valor> <index> }<table> TABLE!\r
+    std::ostringstream cmd;
+    cmd << std::setprecision(7) << value << " " << index << " }" << table_name << " TABLE!\r";
+    std::string command = cmd.str();
+
+    DEBUG_INFO("Comando de Escritura Tabla FLOAT: " << command);
+
+    flushSocketBuffer();
+
+    if (!sendCommand(command)) {
+        cerr << "Error enviando comando de escritura tabla float" << endl;
+        return false;
+    }
+
+    char response[64] = {0};
+    ssize_t bytes = recv(sock, response, sizeof(response), 0);
+
+    DEBUG_INFO("Respuesta escritura tabla FLOAT: " << std::string(response, (bytes > 0 ? bytes : 0)));
+
+    return bytes > 0;
+}
+
+// Escribe un valor int32 en una tabla del PAC en un índice específico
+bool PACControlClient::writeInt32TableIndex(const std::string& table_name, int index, int32_t value) {
+    lock_guard<mutex> lock(comm_mutex);
+
+    if (!connected) {
+        cerr << "No conectado al PAC" << endl;
+        return false;
+    }
+
+    // Formato: <valor> <index> }<table> TABLE!\r
+    std::ostringstream cmd;
+    cmd << value << " " << index << " }" << table_name << " TABLE!\r";
+    std::string command = cmd.str();
+
+    DEBUG_INFO("Comando de Escritura Tabla INT32: " << command);
+
+    flushSocketBuffer();
+
+    if (!sendCommand(command)) {
+        cerr << "Error enviando comando de escritura tabla int32" << endl;
+        return false;
+    }
+
+    char response[64] = {0};
+    ssize_t bytes = recv(sock, response, sizeof(response), 0);
+
+    DEBUG_INFO("Respuesta escritura tabla INT32: " << std::string(response, (bytes > 0 ? bytes : 0)));
+
+    return bytes > 0;
+}
+
+
