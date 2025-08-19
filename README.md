@@ -69,7 +69,9 @@ El archivo `pac_config.json` contiene la configuración de todos los TAGs del PA
 ```
 
 > **Nota**: El archivo está configurado con todos los TAGs reales del PAC S1. 
-> No es necesario editarlo a menos que se agreguen nuevos TAGs al sistema.
+> No es necesario editarlo a menos que se agregue    Comando float: <valor> <index> }<tabla> TABLE!\r
+    Ejemplo: 123.45 2 }TBL_PT_11001 TABLE!\r
+    Comando int32: <valor> <index> }<tabla> TABLE!\rn nuevos TAGs al sistema.
 
 ## Dependencias
 
@@ -255,6 +257,26 @@ El sistema incluye logging comprehensive:
 - Protocolo binario little endian confirmado  
 - Manejo de errores de red implementado
 - Compatible con PAC Control versión actual
+
+### Lectura de Tablas (Binario)
+    Comando: "9 0 }TBL_PT_11001 TRange.\r"
+    Respuesta: Binario IEEE 754 little endian (ej. 40 bytes para 10 floats)
+### Lectura de Variables Individuales (ASCII)
+    Comando float: ^F_CPL_11001 @@ F.\r
+    Comando int32: ^STATUS_BATCH @@ .\r
+    Respuesta: ASCII terminado en espacio (0x20), ej: "1234.5 " o "1.234560e+05 "
+### Escritura de Variables Individuales
+    Comando float: <valor> ^<variable> @!\r
+    Ejemplo: 123.45 ^F_CPL_11001 @!\r
+    Comando int32: <valor> ^<variable> @!\r
+    Ejemplo: 42 ^STATUS_BATCH @!\r
+    Respuesta: ASCII (puede ser eco o confirmación, depende del PAC)
+### Escritura en Tablas
+    Comando float: <valor> <index> }<tabla> TABLE!\r
+    Ejemplo: 123.45 2 }TBL_PT_11001 TABLE!\r
+    Comando int32: <valor> <index> }<tabla> TABLE!\r
+    Ejemplo: 42 3 }TBL_DA_0001 TABLE!\r
+    Respuesta: ASCII (puede ser eco o confirmación)
 
 ### Limitaciones Conocidas
 - Máximo 10 variables por TAG (limitación de protocolo PAC)

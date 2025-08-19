@@ -155,6 +155,11 @@ public:
     float readSingleFloatVariableByTag(const string& tag_name);
     int32_t readSingleInt32VariableByTag(const string& tag_name);
     map<string, float> readMultipleSingleVariables(const vector<pair<string, string>>& variables);
+    bool writeSingleFloatVariable(const std::string& variable_name, float value);
+    bool writeSingleInt32Variable(const std::string& variable_name, int32_t value);
+    bool writeFloatTableIndex(const std::string& table_name, int index, float value);    
+    bool writeInt32TableIndex(const std::string& table_name, int index, int32_t value);
+
 private:
     bool sendCommand(const string& command);
     vector<uint8_t> receiveData(size_t expected_bytes);    
