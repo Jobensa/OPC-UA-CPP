@@ -9,15 +9,21 @@ using namespace std;
 // Declaraciones del servidor integrado
 #include <open62541/server.h>
 #include "pac_control_client.h"
+#include "opcua_server_integrated.h"
+
 
 // Variables externas del servidor
-extern bool running;
-extern bool server_running;
+
 
 // Funciones del servidor
 extern void ServerInit();
 extern UA_StatusCode runServer();
 extern void cleanupAndExit();
+extern bool server_running;
+extern UA_Server *server;
+extern std::atomic<bool> running;
+extern std::mutex serverMutex;
+extern std::unique_ptr<PACControlClient> pacClient;
 
 void signalHandler(int signal)
 {

@@ -1,102 +1,78 @@
 #include "pac_control_client.h"
-#include "common.h"
-#include <open62541/server.h>
-#include <open62541/plugin/log_stdout.h>
-#include <cstdlib>
-#include <vector>
-#include <string>
-#include <fstream>
-#include <iostream>
-#include <thread>
-#include <chrono>
-#include <memory>
-#include <algorithm>
-#include <nlohmann/json.hpp>
-#include <atomic>
-#include <mutex>
-#include <map>
-#include <cmath>
+#include "opcua_server_integrated.h"
 
 using namespace std;
 using json = nlohmann::json;
-
 // Variables globales del servidor
 bool server_running = true;
 UA_Server *server = nullptr;
 atomic<bool> running{true};
 mutex serverMutex;
+DynamicConfig config;
+std::unique_ptr<PACControlClient> pacClient;
 
-// Estructura para definir una propiedad de un TAG
-struct TagProperty {
-    std::string name;
-    UA_Variant value;
-};
 
-// Cliente PAC Control global
-unique_ptr<PACControlClient> pacClient;
+// // Estructura para definir una propiedad de un TAG
+// struct TagProperty {
+//     std::string name;
+//     UA_Variant value;
+// };
 
-// NUEVAS ESTRUCTURAS PARA VARIABLES INDIVIDUALES
-struct FloatVariable {
-    string name;         // Nombre en OPC-UA
-    string pac_tag;      // Nombre real del TAG en el PAC
-    string description;  // Descripción
-};
+// // Cliente PAC Control global
+// unique_ptr<PACControlClient> pacClient;
 
-struct Int32Variable {
-    string name;         // Nombre en OPC-UA
-    string pac_tag;      // Nombre real del TAG en el PAC
-    string description;  // Descripción
-};
+// // NUEVAS ESTRUCTURAS PARA VARIABLES INDIVIDUALES
+// struct FloatVariable {
+//     string name;         // Nombre en OPC-UA
+//     string pac_tag;      // Nombre real del TAG en el PAC
+//     string description;  // Descripción
+// };
 
-// Estructuras para configuración dinámica
-struct TagConfig {
-    string name;
-    string description;
-    string value_table;
-    string alarm_table;
-    vector<string> variables;
-    vector<string> alarms;
-    vector<FloatVariable> float_variables;  // NUEVO
-    vector<Int32Variable> int32_variables;  // NUEVO
-};
+// struct Int32Variable {
+//     string name;         // Nombre en OPC-UA
+//     string pac_tag;      // Nombre real del TAG en el PAC
+//     string description;  // Descripción
+// };
 
-struct PACConfig {
-    string ip = "192.168.1.30";
-    int port = 22001;
-    int timeout_ms = 5000;
-};
+// // Estructuras para configuración dinámica
+// struct TagConfig {
+//     string name;
+//     string description;
+//     string value_table;
+//     string alarm_table;
+//     vector<string> variables;
+//     vector<string> alarms;
+//     vector<FloatVariable> float_variables;  // NUEVO
+//     vector<Int32Variable> int32_variables;  // NUEVO
+// };
 
-struct OPCUAVariable {
-    string full_name;        // ej: "TT_11001.PV"
-    string tag_name;         // ej: "TT_11001"
-    string var_name;         // ej: "PV"
-    string table_name;       // ej: "TBL_TT_11001"
-    string type;             // "float", "int32", "single_float", "single_int32"
-    string pac_tag;          // Para variables individuales
-    UA_NodeId nodeId;
-    bool has_nodeId = false;
-};
+// struct PACConfig {
+//     string ip = "192.168.1.30";
+//     int port = 22001;
+//     int timeout_ms = 5000;
+// };
 
-struct DynamicConfig {
-    PACConfig pac_config;
-    int opcua_port = 4840;
-    int update_interval_ms = 2000;
-    vector<TagConfig> tags;
-    vector<OPCUAVariable> variables;
-    vector<FloatVariable> global_float_variables;   // NUEVO: Variables float globales
-    vector<Int32Variable> global_int32_variables;   // NUEVO: Variables int32 globales
-} config;
+// struct OPCUAVariable {
+//     string full_name;        // ej: "TT_11001.PV"
+//     string tag_name;         // ej: "TT_11001"
+//     string var_name;         // ej: "PV"
+//     string table_name;       // ej: "TBL_TT_11001"
+//     string type;             // "float", "int32", "single_float", "single_int32"
+//     string pac_tag;          // Para variables individuales
+//     UA_NodeId nodeId;
+//     bool has_nodeId = false;
+// };
 
-// Funciones para cargar configuración
-bool loadConfigFromFiles();
-void createDynamicMappings();
-void updateSingleVariables();
+// struct DynamicConfig {
+//     PACConfig pac_config;
+//     int opcua_port = 4840;
+//     int update_interval_ms = 2000;
+//     vector<TagConfig> tags;
+//     vector<OPCUAVariable> variables;
+//     vector<FloatVariable> global_float_variables;   // NUEVO: Variables float globales
+//     vector<Int32Variable> global_int32_variables;   // NUEVO: Variables int32 globales
+// } config;
 
-// Funciones auxiliares para actualización de datos
-int getVariableIndex(const string& varName);
-void updateTableVariables(const string& table_name, const vector<int>& indices);
-void updateFloatVariables(const string& table_name, const vector<float>& values, int min_index);
-void updateInt32Variables(const string& table_name, const vector<int32_t>& values, int min_index);
 
 void addTagNodeWithProperties(UA_Server *server, 
                               const std::string &tagName, 
@@ -432,9 +408,10 @@ void createDynamicMappings() {
     DEBUG_INFO("✓ Variables mapeadas dinámicamente: " << config.variables.size());
 }
 
-// CORRECCIÓN 2: Función para crear nodos OPC UA con gestión segura de memoria
+
+// Actualizar función createOPCUANodes para usar la nueva función
 void createOPCUANodes() {
-    DEBUG_INFO("🏗️  Creando nodos OPC UA...");
+    DEBUG_INFO("🏗️  Creando nodos OPC UA con capacidad de escritura...");
     
     // Mapa para agrupar variables por TAG
     std::map<std::string, std::vector<TagProperty>> tagProperties;
@@ -444,7 +421,7 @@ void createOPCUANodes() {
         TagProperty prop;
         prop.name = var.var_name;
         
-        // CORRECCIÓN: Configurar tipo de dato según el mapeo de forma segura
+        // Configurar tipo de dato según el mapeo
         UA_Variant_init(&prop.value);
         if (var.type == "float" || var.type == "single_float") {
             UA_Float* valorInicial = (UA_Float*)UA_malloc(sizeof(UA_Float));
@@ -460,13 +437,13 @@ void createOPCUANodes() {
         tagProperties[var.tag_name].push_back(prop);
     }
     
-    // Crear TAGs con sus propiedades usando la función existente
+    // Crear TAGs con sus propiedades usando la función CON ESCRITURA
     for (const auto& tagPair : tagProperties) {
         const std::string& tagName = tagPair.first;
         const std::vector<TagProperty>& properties = tagPair.second;
         
-        DEBUG_INFO("🏷️  Creando TAG: " << tagName << " con " << properties.size() << " propiedades");
-        addTagNodeWithProperties(server, tagName, properties);
+        DEBUG_INFO("🏷️  Creando TAG CON ESCRITURA: " << tagName << " con " << properties.size() << " propiedades");
+        addTagNodeWithPropertiesWritable(server, tagName, properties);  // USAR NUEVA FUNCIÓN
         
         // Actualizar las NodeId en las variables para referencia posterior
         for (auto& var : config.variables) {
@@ -476,13 +453,13 @@ void createOPCUANodes() {
             }
         }
         
-        // CORRECCIÓN: Limpiar memoria de las propiedades después de usarlas
+        // Limpiar memoria de las propiedades después de usarlas
         for (const auto& prop : properties) {
             UA_Variant_clear(const_cast<UA_Variant*>(&prop.value));
         }
     }
     
-    DEBUG_INFO("✓ Creados " << tagProperties.size() << " TAGs con estructura jerárquica");
+    DEBUG_INFO("✓ Creados " << tagProperties.size() << " TAGs CON CAPACIDAD DE ESCRITURA");
 }
 
 // CORRECCIÓN 3: Función segura para actualizar variables individuales
@@ -778,28 +755,28 @@ void cleanupAndExit() {
     cout << "👋 ¡Hasta luego!" << endl;
 }
 
-// Función auxiliar para obtener índice de variable en tabla TBL_ANALOG_TAG
-int getVariableIndex(const string& varName) {
-    // Basado en la estructura TBL_ANALOG_TAG
-    if (varName == "Input") return 0;        // Input del sensor
-    if (varName == "SetHH") return 1;        // Setpoint alarma muy alta
-    if (varName == "SetH") return 2;         // Setpoint alarma alta
-    if (varName == "SetL") return 3;         // Setpoint alarma baja
-    if (varName == "SetLL") return 4;        // Setpoint alarma muy baja
-    if (varName == "SIM_Value") return 5;    // Valor de simulación
-    if (varName == "PV") return 6;           // Process Value (Input or SIM_Value)
-    if (varName == "Min") return 7;          // Valor mínimo
-    if (varName == "Max") return 8;          // Valor máximo
-    if (varName == "Percent") return 9;      // Porcentaje del PV
+// // Función auxiliar para obtener índice de variable en tabla TBL_ANALOG_TAG
+// int getVariableIndex(const string& varName) {
+//     // Basado en la estructura TBL_ANALOG_TAG
+//     if (varName == "Input") return 0;        // Input del sensor
+//     if (varName == "SetHH") return 1;        // Setpoint alarma muy alta
+//     if (varName == "SetH") return 2;         // Setpoint alarma alta
+//     if (varName == "SetL") return 3;         // Setpoint alarma baja
+//     if (varName == "SetLL") return 4;        // Setpoint alarma muy baja
+//     if (varName == "SIM_Value") return 5;    // Valor de simulación
+//     if (varName == "PV") return 6;           // Process Value (Input or SIM_Value)
+//     if (varName == "Min") return 7;          // Valor mínimo
+//     if (varName == "Max") return 8;          // Valor máximo
+//     if (varName == "Percent") return 9;      // Porcentaje del PV
     
-    // Variables de alarma (tabla int32)
-    if (varName == "ALARM_HH") return 0;
-    if (varName == "ALARM_H") return 1;
-    if (varName == "ALARM_L") return 2;
-    if (varName == "ALARM_LL") return 3;
-    if (varName == "COLOR") return 4;
-    return -1;
-}
+//     // Variables de alarma (tabla int32)
+//     if (varName == "ALARM_HH") return 0;
+//     if (varName == "ALARM_H") return 1;
+//     if (varName == "ALARM_L") return 2;
+//     if (varName == "ALARM_LL") return 3;
+//     if (varName == "COLOR") return 4;
+//     return -1;
+// }
 
 // Función auxiliar para actualizar variables de una tabla
 void updateTableVariables(const string& table_name, const vector<int>& indices) {
@@ -958,3 +935,304 @@ void updateInt32Variables(const string& table_name, const vector<int32_t>& value
         }
     }
 }
+static void writeValueCallback(UA_Server *server,
+                              const UA_NodeId *sessionId,
+                              void *sessionContext,
+                              const UA_NodeId *nodeId,
+                              void *nodeContext,
+                              const UA_NumericRange *range,
+                              const UA_DataValue *data) {
+    
+    // Obtener el NodeId como string
+    if (nodeId->identifierType != UA_NODEIDTYPE_STRING) {
+        DEBUG_INFO("❌ NodeId no es string, ignorando escritura");
+        return; // CORRECCIÓN: return void en lugar de UA_StatusCode
+    }
+    
+    string nodeIdStr = string((char*)nodeId->identifier.string.data, nodeId->identifier.string.length);
+    DEBUG_INFO("✍️  ESCRITURA SOLICITADA en: " << nodeIdStr);
+    
+    // Verificar que tenemos conexión PAC
+    if (!pacClient || !pacClient->isConnected()) {
+        DEBUG_INFO("❌ Sin conexión PAC - Rechazando escritura");
+        return; // CORRECCIÓN: return void
+    }
+    
+    // Buscar la variable en nuestra configuración
+    OPCUAVariable* target_var = nullptr;
+    for (auto& var : config.variables) {
+        if (var.full_name == nodeIdStr && var.has_nodeId) {
+            target_var = &var;
+            break;
+        }
+    }
+    
+    if (!target_var) {
+        DEBUG_INFO("❌ Variable no encontrada: " << nodeIdStr);
+        return; // CORRECCIÓN: return void
+    }
+    
+    // Verificar que solo variables SET_xxx y E_xxx son escribibles para tablas
+    bool is_writable = false;
+    
+    if (target_var->type == "single_float" || target_var->type == "single_int32") {
+        // Variables individuales siempre escribibles
+        is_writable = true;
+        DEBUG_INFO("📝 Variable individual escribible: " << nodeIdStr);
+    } else if (target_var->type == "float" || target_var->type == "int32") {
+        // Variables de tabla: solo SET_xxx y E_xxx son escribibles
+        if (target_var->var_name.find("SET_") == 0 || 
+            target_var->var_name.find("E_") == 0 ||
+            target_var->var_name.find("SetHH") == 0 ||
+            target_var->var_name.find("SetH") == 0 ||
+            target_var->var_name.find("SetL") == 0 ||
+            target_var->var_name.find("SetLL") == 0 ||
+            target_var->var_name.find("SIM_Value") == 0) {
+            is_writable = true;
+            DEBUG_INFO("📝 Variable de tabla escribible: " << nodeIdStr);
+        } else {
+            DEBUG_INFO("🔒 Variable de tabla SOLO LECTURA: " << nodeIdStr);
+            return; // CORRECCIÓN: return void
+        }
+    }
+    
+    if (!is_writable) {
+        DEBUG_INFO("🔒 Variable no escribible: " << nodeIdStr);
+        return; // CORRECCIÓN: return void
+    }
+    
+    // Procesar escritura según el tipo
+    bool write_success = false;
+    
+    try {
+        if (target_var->type == "single_float") {
+            // Variable float individual
+            if (data->value.type == &UA_TYPES[UA_TYPES_FLOAT]) {
+                float value = *(UA_Float*)data->value.data;
+                DEBUG_INFO("🔥 Escribiendo variable float individual: " << target_var->pac_tag << " = " << value);
+                write_success = pacClient->writeSingleFloatVariable(target_var->pac_tag, value);
+            } else {
+                DEBUG_INFO("❌ Tipo de dato incorrecto para variable float individual");
+                return; // CORRECCIÓN: return void
+            }
+            
+        } else if (target_var->type == "single_int32") {
+            // Variable int32 individual
+            if (data->value.type == &UA_TYPES[UA_TYPES_INT32]) {
+                int32_t value = *(UA_Int32*)data->value.data;
+                DEBUG_INFO("🔥 Escribiendo variable int32 individual: " << target_var->pac_tag << " = " << value);
+                write_success = pacClient->writeSingleInt32Variable(target_var->pac_tag, value);
+            } else {
+                DEBUG_INFO("❌ Tipo de dato incorrecto para variable int32 individual");
+                return; // CORRECCIÓN: return void
+            }
+            
+        } else if (target_var->type == "float") {
+            // Variable float de tabla
+            if (data->value.type == &UA_TYPES[UA_TYPES_FLOAT]) {
+                float value = *(UA_Float*)data->value.data;
+                int index = getVariableIndex(target_var->var_name);
+                if (index >= 0) {
+                    DEBUG_INFO("🔥 Escribiendo variable float de tabla: " << target_var->table_name 
+                         << "[" << index << "] = " << value);
+                    write_success = pacClient->writeFloatTableIndex(target_var->table_name, index, value);
+                } else {
+                    DEBUG_INFO("❌ Índice de variable inválido: " << target_var->var_name);
+                    return; // CORRECCIÓN: return void
+                }
+            } else {
+                DEBUG_INFO("❌ Tipo de dato incorrecto para variable float de tabla");
+                return; // CORRECCIÓN: return void
+            }
+            
+        } else if (target_var->type == "int32") {
+            // Variable int32 de tabla
+            if (data->value.type == &UA_TYPES[UA_TYPES_INT32]) {
+                int32_t value = *(UA_Int32*)data->value.data;
+                int index = getVariableIndex(target_var->var_name);
+                if (index >= 0) {
+                    DEBUG_INFO("🔥 Escribiendo variable int32 de tabla: " << target_var->table_name 
+                         << "[" << index << "] = " << value);
+                    write_success = pacClient->writeInt32TableIndex(target_var->table_name, index, value);
+                } else {
+                    DEBUG_INFO("❌ Índice de variable inválido: " << target_var->var_name);
+                    return; // CORRECCIÓN: return void
+                }
+            } else {
+                DEBUG_INFO("❌ Tipo de dato incorrecto para variable int32 de tabla");
+                return; // CORRECCIÓN: return void
+            }
+        }
+        
+        if (write_success) {
+            DEBUG_INFO("✅ Escritura exitosa en PAC: " << nodeIdStr);
+            
+            // Actualizar el valor en el servidor OPC UA inmediatamente
+            UA_Variant updateValue;
+            UA_Variant_init(&updateValue);
+            UA_Variant_copy(&data->value, &updateValue);
+            UA_Server_writeValue(server, *nodeId, updateValue);
+            UA_Variant_clear(&updateValue);
+            
+        } else {
+            DEBUG_INFO("❌ Error escribiendo en PAC: " << nodeIdStr);
+        }
+        
+    } catch (const exception& e) {
+        DEBUG_INFO("❌ Excepción durante escritura: " << e.what());
+    }
+    
+    // CORRECCIÓN: Función void no retorna nada
+}
+
+
+// Función mejorada para crear nodos con callback de escritura
+void addTagNodeWithPropertiesWritable(UA_Server *server, 
+                                     const std::string &tagName, 
+                                     const std::vector<TagProperty> &properties) 
+{
+    DEBUG_INFO("🌳 CREANDO ÁRBOL OPC-UA CON ESCRITURA: " << tagName << " con " << properties.size() << " propiedades");
+    
+    // Crear nodo objeto para el TAG
+    UA_NodeId tagNodeId;
+    UA_ObjectAttributes oAttr = UA_ObjectAttributes_default;
+    oAttr.displayName = UA_LOCALIZEDTEXT("es-ES", const_cast<char*>(tagName.c_str()));
+    
+    UA_StatusCode result = UA_Server_addObjectNode(
+        server,
+        UA_NODEID_STRING(1, const_cast<char*>(tagName.c_str())),
+        UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
+        UA_NODEID_NUMERIC(0, UA_NS0ID_ORGANIZES),
+        UA_QUALIFIEDNAME(1, const_cast<char*>(tagName.c_str())),
+        UA_NODEID_NUMERIC(0, UA_NS0ID_BASEOBJECTTYPE),
+        oAttr, NULL, &tagNodeId
+    );
+    
+    if (result != UA_STATUSCODE_GOOD) {
+        DEBUG_INFO("❌ ERROR creando nodo TAG: " << tagName << " - código: " << result);
+        return;
+    }
+    
+    DEBUG_INFO("✅ Nodo TAG creado: " << tagName);
+
+    // Agregar cada propiedad como variable hija con callback de escritura
+    for(const auto& prop : properties) {
+        UA_VariableAttributes vAttr = UA_VariableAttributes_default;
+        vAttr.displayName = UA_LOCALIZEDTEXT("es-ES", const_cast<char*>(prop.name.c_str()));
+        vAttr.value = prop.value;
+        
+        // Determinar nivel de acceso basado en el nombre de la variable
+        bool is_writable = false;
+        std::string nodeIdStr = tagName + "." + prop.name;
+        
+        // Buscar la variable en configuración para determinar si es escribible
+        for (const auto& var : config.variables) {
+            if (var.full_name == nodeIdStr) {
+                if (var.type == "single_float" || var.type == "single_int32") {
+                    // Variables individuales siempre escribibles
+                    is_writable = true;
+                } else if (var.type == "float" || var.type == "int32") {
+                    // Variables de tabla: solo SET_xxx y E_xxx son escribibles
+                    if (var.var_name.find("SET_") == 0 || 
+                        var.var_name.find("E_") == 0 ||
+                        var.var_name.find("SetHH") == 0 ||
+                        var.var_name.find("SetH") == 0 ||
+                        var.var_name.find("SetL") == 0 ||
+                        var.var_name.find("SetLL") == 0 ||
+                        var.var_name.find("SIM_Value") == 0) {
+                        is_writable = true;
+                    }
+                }
+                break;
+            }
+        }
+        
+        if (is_writable) {
+            vAttr.accessLevel = UA_ACCESSLEVELMASK_READ | UA_ACCESSLEVELMASK_WRITE;
+            DEBUG_INFO("  📝 Variable ESCRIBIBLE: " << nodeIdStr);
+        } else {
+            vAttr.accessLevel = UA_ACCESSLEVELMASK_READ;
+            DEBUG_INFO("  👁️  Variable SOLO LECTURA: " << nodeIdStr);
+        }
+        
+        // NodeId explícito: "TagName.PropertyName"
+        UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char*>(nodeIdStr.c_str()));
+        
+        // Crear atributos de nodo de variable
+        UA_VariableTypeAttributes vtAttr = UA_VariableTypeAttributes_default;
+        
+        UA_StatusCode propResult = UA_Server_addVariableNode(
+            server,
+            nodeId,
+            tagNodeId,
+            UA_NODEID_NUMERIC(0, UA_NS0ID_HASCOMPONENT),
+            UA_QUALIFIEDNAME(1, const_cast<char*>(prop.name.c_str())),
+            UA_NODEID_NUMERIC(0, UA_NS0ID_BASEDATAVARIABLETYPE),
+            vAttr, NULL, NULL
+        );
+        
+        if (propResult == UA_STATUSCODE_GOOD) {
+            // Agregar callback de escritura solo si es escribible
+            if (is_writable) {
+                UA_ValueCallback callback;
+                callback.onRead = NULL;
+                callback.onWrite = writeValueCallback;
+                UA_Server_setVariableNode_valueCallback(server, nodeId, callback);
+                DEBUG_INFO("  ✅ Variable con CALLBACK de escritura: " << nodeIdStr);
+            } else {
+                DEBUG_INFO("  ✅ Variable SOLO LECTURA: " << nodeIdStr);
+            }
+        } else {
+            DEBUG_INFO("❌ ERROR creando propiedad: " << nodeIdStr << " - código: " << propResult);
+        }
+    }
+    
+    DEBUG_INFO("🎯 TAG COMPLETADO CON ESCRITURA: " << tagName);
+}
+
+// Función auxiliar para obtener índice de variable en tabla TBL_ANALOG_TAG
+int getVariableIndex(const string& varName) {
+    // Variables de lectura y escritura
+    if (varName == "Input") return 0;        // Input del sensor (solo lectura)
+    if (varName == "SetHH") return 1;        // Setpoint alarma muy alta (ESCRIBIBLE)
+    if (varName == "SetH") return 2;         // Setpoint alarma alta (ESCRIBIBLE)
+    if (varName == "SetL") return 3;         // Setpoint alarma baja (ESCRIBIBLE)
+    if (varName == "SetLL") return 4;        // Setpoint alarma muy baja (ESCRIBIBLE)
+    if (varName == "SIM_Value") return 5;    // Valor de simulación (ESCRIBIBLE)
+    if (varName == "PV") return 6;           // Process Value (solo lectura)
+    if (varName == "Min") return 7;          // Valor mínimo (solo lectura)
+    if (varName == "Max") return 8;          // Valor máximo (solo lectura)
+    if (varName == "Percent") return 9;      // Porcentaje del PV (solo lectura)
+    
+    // Variables de alarma (tabla int32)
+    if (varName == "ALARM_HH") return 0;     // (solo lectura)
+    if (varName == "ALARM_H") return 1;      // (solo lectura)
+    if (varName == "ALARM_L") return 2;      // (solo lectura)
+    if (varName == "ALARM_LL") return 3;     // (solo lectura)
+    if (varName == "COLOR") return 4;        // (solo lectura)
+    
+    // Variables adicionales escribibles con prefijo SET_ o E_
+    if (varName.find("SET_") == 0) {
+        // Parsear índice desde SET_xxx (ej: SET_0 -> 0)
+        string index_str = varName.substr(4);
+        try {
+            return std::stoi(index_str);
+        } catch (...) {
+            return -1;
+        }
+    }
+    
+    if (varName.find("E_") == 0) {
+        // Variables de habilitación (ej: E_0 -> 0)
+        string index_str = varName.substr(2);
+        try {
+            return std::stoi(index_str);
+        } catch (...) {
+            return -1;
+        }
+    }
+    
+    return -1;
+}
+
+
