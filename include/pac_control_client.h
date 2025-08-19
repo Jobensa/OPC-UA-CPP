@@ -147,7 +147,8 @@ public:
     
     // Análisis de estabilidad de datos
     void analyzeDataStability(const string& table_name, const vector<uint8_t>& raw_data);
-
+    
+    vector<uint8_t> receiveData(size_t expected_bytes);
     // 🔧 NUEVOS MÉTODOS PARA EVITAR INTERFERENCIAS (públicos para testing)
     void flushSocketBuffer();  // Limpiar buffer del socket
     bool validateDataIntegrity(const vector<uint8_t>& data, const string& table_name);  // Validar integridad
@@ -161,12 +162,11 @@ public:
     bool writeInt32TableIndex(const std::string& table_name, int index, int32_t value);
 
 private:
-    bool sendCommand(const string& command);
-    vector<uint8_t> receiveData(size_t expected_bytes);    
+    bool sendCommand(const string& command);     
     vector<uint8_t> convertInt32sToBytes(const vector<int32_t>& ints);  
     vector<int32_t> convertBytesToInt32s(const vector<uint8_t>& bytes);
     vector<uint8_t> convertFloatsToBytes(const vector<float>& floats);
-   
+  
 
     // NUEVAS: Funciones de conversión robustas
     float convertStringToFloat(const string& str);           // Maneja notación científica
@@ -175,6 +175,8 @@ private:
     string receiveResponse();
     bool validateSingleVariableIntegrity(const vector<uint8_t>& data, 
                                         const string& tag_name);
+     bool receiveWriteConfirmation();
+     void clearCacheForTable(const std::string& table_name);    
 };
 
 #endif // PAC_CONTROL_CLIENT_H

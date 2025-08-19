@@ -19,6 +19,7 @@
 #include <mutex>
 #include <map>
 #include <cmath>
+#include <set>  // Para std::set
 
 // Forward declarations
 class PACControlClient;

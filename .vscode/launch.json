@@ -1,6 +1,26 @@
 {
   "version": "0.2.0",
   "configurations": [
+
+    {
+      "name": "(gdb) Adjuntar",
+      "type": "cppdbg",
+      "request": "attach",
+      "program": "Escriba el nombre del programa; por ejemplo, ${workspaceFolder}/a.out.",
+      "MIMode": "gdb",
+      "setupCommands": [
+          {
+              "description": "Habilitar la impresión con sangría para gdb",
+              "text": "-enable-pretty-printing",
+              "ignoreFailures": true
+          },
+          {
+              "description": "Establecer tipo de desensamblado en Intel",
+              "text": "-gdb-set disassembly-flavor intel",
+              "ignoreFailures": true
+          }
+      ]
+    },
     {
       "name": "(gdb) Iniciar",
       "type": "cppdbg",
@@ -26,14 +46,14 @@
       ]
     },
     {
-      "name": "C/C++ Runner: Debug Session",
+      "name": "Debug Paso a Paso",
       "type": "cppdbg",
       "request": "launch",
       "args": [],
       "stopAtEntry": false,
       "externalConsole": false,
-      "cwd": "/media/jose/AE96416B964134DD1/Data/Proyectos/PetroSantander/SCADA/opcua-optommp/src",
-      "program": "/media/jose/AE96416B964134DD1/Data/Proyectos/PetroSantander/SCADA/opcua-optommp/src/build/Debug/outDebug",
+      "cwd": "/media/jose/Datos/Data/Proyectos/PetroSantander/SCADA/opcua-optommp/",
+      "program": "/media/jose/Datos/Data/Proyectos/PetroSantander/SCADA/opcua-optommp/build/opcua_telemetria_server",
       "MIMode": "gdb",
       "miDebuggerPath": "gdb",
       "setupCommands": [

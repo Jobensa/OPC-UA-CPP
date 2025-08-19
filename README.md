@@ -1,84 +1,110 @@
 # Servidor OPC UA con Protocolo PAC Control para PetroSantander SCADA
 
-Este proyecto implementa un servidor OPC UA que se comunica directamente con dispositivos PAC (Process Automation Controller) de Opto 22 usando el protocolo nativo PAC Control, proporcionando acceso completo a las tablas internas del controlador.
+Este proyecto implementa un servidor OPC UA que se comunica directamente con dispositivos PAC (Process Automation Controller) de Opto 22 usando el protocolo nativo PAC Control, proporcionando acceso completo de **lectura y escritura** a las tablas internas y variables individuales del controlador.
 
 ## Características
 
-- **Protocolo PAC Control nativo**: Comunicación directa TCP puerto 22001
-- **Acceso completo a tablas PAC**: Lectura/escritura de variables tipo TBL_PT_*
+- **Protocolo PAC Control nativo completo**: Comunicación directa TCP puerto 22001
+- **Lectura y escritura completa**: Variables de tabla y variables individuales
+- **Doble formato de respuesta**: ASCII para variables individuales, binario para tablas
 - **Servidor OPC UA integrado**: Compatible con clientes OPC UA estándar
 - **Alta confiabilidad**: Protocolo binario nativo sin dependencias externas
 - **Mapeo configurable**: Tags mapeados a variables PAC específicas
-- **Soporte para múltiples tipos de datos**: Float (IEEE 754), Int32, Boolean
-- **Caché optimizado**: Sistema de caché para mejorar rendimiento
+- **Soporte para múltiples tipos**: Float (IEEE 754), Int32, variables individuales
+- **Variables escribibles inteligentes**: Solo SET_xxx, E_xxx, SetHH/H/L/LL, SIM_Value
+- **Sistema de debug avanzado**: Logs configurables con macros DEBUG_VERBOSE/DEBUG_INFO
 - **Thread-safe**: Comunicación segura concurrente
+- **Notación científica**: Soporte completo para valores grandes (ej: 1.234560e+05)
 
-## Protocolo PAC Control Descifrado
+## Protocolo PAC Control Completamente Implementado
 
-El protocolo usa comandos formato texto "RANGO TABLA OPERACIÓN":
-- Formato: `"9 0 TBL_PT_11001 TRange.\r"`
-- Puerto: 22001 TCP
-- Respuesta: Binario IEEE 754 little endian
-- Documentación completa en `PROTOCOLO_PAC_CONTROL_DESCIFRADO.md`
+### Comandos de Lectura
+
+#### Lectura de Tablas (Respuesta Binaria)
+- **Formato**: `"<end_pos> 0 }<tabla> TRange.\r"`
+- **Ejemplo**: `"9 0 }TBL_PT_11001 TRange.\r"`
+- **Respuesta**: Binario IEEE 754 little endian (40 bytes para 10 floats)
+
+#### Lectura de Variables Individuales (Respuesta ASCII)
+- **Float**: `^<variable> @@ F.\r`
+  - Ejemplo: `^F_CPL_11001 @@ F.\r`
+- **Int32**: `^<variable> @@ .\r`
+  - Ejemplo: `^STATUS_BATCH @@ .\r`
+- **Respuesta**: ASCII terminado en espacio (0x20)
+  - Ejemplos: `"1234.5 "`, `"1.234560e+05 "`, `"42 "`
+
+### Comandos de Escritura
+
+#### Escritura de Variables Individuales
+- **Float**: `<valor> ^<variable> @!\r`
+  - Ejemplo: `123.45 ^F_CPL_11001 @!\r`
+- **Int32**: `<valor> ^<variable> @!\r`
+  - Ejemplo: `42 ^STATUS_BATCH @!\r`
+
+#### Escritura en Tablas
+- **Float**: `<valor> <index> }<tabla> TABLE!\r`
+  - Ejemplo: `123.45 2 }TBL_PT_11001 TABLE!\r`
+- **Int32**: `<valor> <index> }<tabla> TABLE!\r`
+  - Ejemplo: `42 3 }TBL_DA_0001 TABLE!\r`
+
+### Protocolo de Comunicación
+- **Puerto**: 22001 TCP (estándar PAC Control)
+- **Terminadores**: 
+  - Comando: `\r` (0x0D)
+  - Respuesta ASCII: espacio (0x20)
+- **Formato de datos**: 
+  - Tablas: IEEE 754 little endian
+  - Variables individuales: ASCII con soporte científico
 
 ## Estructura del Proyecto
 
 ```
 ├── src/
-│   ├── main_integrated.cpp         # Aplicación principal integrada
-│   ├── opcua_server_integrated.cpp # Servidor OPC UA con integración PAC
-│   └── pac_control_client.cpp      # Cliente para comunicación PAC Control
+│   ├── main_integrated.cpp           # Aplicación principal integrada
+│   ├── opcua_server_integrated.cpp   # Servidor OPC UA con lectura/escritura PAC
+│   └── pac_control_client..cpp       # Cliente PAC Control completo (lectura/escritura)
 ├── include/
-│   ├── common.h                    # Definiciones comunes
-│   └── pac_control_client.h        # Interface PAC Control
-├── build/                          # Archivos compilados
-├── pac_config.json                 # Configuración de TAGs PAC (21 TAGs reales)
-├── Makefile                        # Sistema de compilación
-└── README.md                       # Esta documentación
+│   ├── common.h                      # Macros de debug configurables
+│   ├── opcua_server_integrated.h     # Interface servidor OPC UA
+│   └── pac_control_client.h          # Interface PAC Control completa
+├── build/                            # Archivos compilados
+├── pac_config.json                   # Configuración de TAGs PAC (21 TAGs reales)
+├── Makefile                          # Sistema de compilación
+└── README.md                         # Esta documentación
 ```
 
-## Configuración
+## Variables y Escritura OPC UA
 
-### Archivo de Configuración Principal
+### Variables Escribibles Automáticamente
+El servidor OPC UA permite escritura **solo en variables apropiadas**:
 
-El archivo `pac_config.json` contiene la configuración de todos los TAGs del PAC S1. Está preconfigurado con 21 TAGs reales del sistema:
+#### Variables de Tabla Escribibles:
+- `SetHH`, `SetH`, `SetL`, `SetLL` (setpoints de alarmas)
+- `SIM_Value` (valor de simulación)
+- `SET_xxx` (variables de configuración)
+- `E_xxx` (variables de habilitación)
 
-```json
-{
-    "pac_ip": "192.168.1.10",
-    "pac_port": 22001,
-    "tags": [
-        {
-            "name": "DT_0001",
-            "value_table": "TBL_DT_0001",
-            "alarm_table": "TBL_DA_0001",
-            "variables": [
-                "Engineering Unit", "Tag-Desc", "Present-Value",
-                "Effective-Hi-Limit", "Effective-Lo-Limit",
-                "Hi-Hi-Limit", "Hi-Limit", "Lo-Limit", 
-                "Lo-Lo-Limit", "Initial-Value"
-            ],
-            "alarms": [
-                "Hi-Hi-Alarm", "Hi-Alarm", "Lo-Alarm",
-                "Lo-Lo-Alarm", "Comm-Alarm"
-            ]
-        }
-        // ... 20 TAGs adicionales (DT_, LT_, PT_, TT_)
-    ]
-}
+#### Variables de Tabla Solo Lectura:
+- `Input`, `PV`, `Min`, `Max`, `Percent` (valores del proceso)
+- `ALARM_HH`, `ALARM_H`, `ALARM_L`, `ALARM_LL`, `COLOR` (estados de alarma)
+
+#### Variables Individuales:
+- **Todas las variables float/int32 individuales son escribibles**
+
+### Mapeo Inteligente de Escritura
 ```
-
-> **Nota**: El archivo está configurado con todos los TAGs reales del PAC S1. 
-> No es necesario editarlo a menos que se agregue    Comando float: <valor> <index> }<tabla> TABLE!\r
-    Ejemplo: 123.45 2 }TBL_PT_11001 TABLE!\r
-    Comando int32: <valor> <index> }<tabla> TABLE!\rn nuevos TAGs al sistema.
+TAG.SetHH     → TBL_TAG[1] = valor    ✅ ESCRIBIBLE
+TAG.PV        → TBL_TAG[6] = valor    ❌ SOLO LECTURA
+F_CPL_11001   → ^F_CPL_11001 @!\r     ✅ ESCRIBIBLE
+STATUS_BATCH  → ^STATUS_BATCH @!\r    ✅ ESCRIBIBLE
+```
 
 ## Dependencias
 
 ### Librerías del sistema (Ubuntu/Debian):
 ```bash
 sudo apt-get update
-sudo apt-get install -y build-essential libopen62541-dev libopen62541-1
+sudo apt-get install -y build-essential libopen62541-dev libopen62541-1 nlohmann-json3-dev
 ```
 
 ## Compilación
@@ -103,6 +129,21 @@ make rebuild
 make run
 ```
 
+## Configuración de Debug
+
+### Control de Logs en `include/common.h`:
+
+```cpp
+// Configuración de debug
+#define ENABLE_INFO      // ✅ Mensajes informativos básicos
+// #define ENABLE_VERBOSE   // ❌ Debug detallado (comentar para producción)
+```
+
+#### Niveles de Debug:
+- **Silencioso**: Comentar ambas macros (solo errores críticos)
+- **Normal**: Solo `ENABLE_INFO` (info básica de operaciones)
+- **Completo**: Ambas macros (debug detallado de protocolos)
+
 ## Configuración
 
 ### 1. Configuración del PAC
@@ -112,47 +153,45 @@ Editar `pac_config.json`:
 ```json
 {
     "pac_config": {
-        "ip": "192.168.1.100",     // IP del dispositivo PAC Opto 22
-        "port": 22001,             // Puerto PAC Control (SIEMPRE 22001)
-        "timeout_ms": 5000         // Timeout de conexión
-    }
+        "ip": "192.168.1.30",         // IP del dispositivo PAC Opto 22
+        "port": 22001,                // Puerto PAC Control (SIEMPRE 22001)
+        "timeout_ms": 5000            // Timeout de conexión
+    },
+    "opcua_port": 4840,               // Puerto del servidor OPC UA
+    "update_interval_ms": 2000        // Intervalo de actualización
 }
 ```
 
 ### 2. Configuración de Tags
 
-El archivo `pac_config.json` contiene la configuración completa de 21 tags del PAC S1:
+El archivo `pac_config.json` contiene:
 
-- **3 DT_** (Transmisores diferenciales)
-- **6 LT_** (Transmisores de nivel) 
-- **6 PT_** (Transmisores de presión)
-- **6 TT_** (Transmisores de temperatura)
+- **Variables de tabla**: 21 tags completos del PAC S1
+- **Variables individuales**: Float e Int32 independientes
+- **Mapeo automático**: A nodos OPC UA con escritura inteligente
 
-Cada tag incluye:
-- **Tabla de valores** (10 variables flotantes)
-- **Tabla de alarmas** (5 variables int32)
-- **Mapeo automático** a nodos OPC UA
+```json
+{
+    "tags": [
+        {
+            "name": "TT_11001",
+            "value_table": "TBL_TT_11001",
+            "alarm_table": "TBL_TA_11001",
+            "variables": ["Input", "SetHH", "SetH", "SetL", "SetLL", 
+                         "SIM_Value", "PV", "Min", "Max", "Percent"],
+            "alarms": ["ALARM_HH", "ALARM_H", "ALARM_L", "ALARM_LL", "COLOR"]
         }
+    ],
+    "global_float_variables": [
+        {"name": "F_Current_Flow", "pac_tag": "F_CPL_11001", "description": "Flujo actual"},
+        {"name": "F_Total_Volume", "pac_tag": "F_TOTAL_VOL", "description": "Volumen total"}
+    ],
+    "global_int32_variables": [
+        {"name": "Status_Batch", "pac_tag": "STATUS_BATCH", "description": "Estado del batch"},
+        {"name": "Pump_Status", "pac_tag": "PUMP_CTRL", "description": "Estado de bomba"}
     ]
-## Protocolo PAC Control
-
-### Formato de Variables PAC:
-- **TBL_DT_xxxxx**: Variables de datos de temperatura (Data Temperature)
-- **TBL_LT_xxxxx**: Variables de nivel de líquido (Liquid Tank)  
-- **TBL_PT_xxxxx**: Variables de presión (Pressure Tags)
-- **TBL_TT_xxxxx**: Variables de transmisores de temperatura (Temperature Transmitters)
-
-### Tablas de Alarmas:
-- **TBL_DA_xxxxx**: Alarmas de datos (Data Alarms)
-- **TBL_LA_xxxxx**: Alarmas de nivel (Level Alarms)
-- **TBL_PA_xxxxx**: Alarmas de presión (Pressure Alarms)  
-- **TBL_TA_xxxxx**: Alarmas de temperatura (Temperature Alarms)
-
-### Comandos Protocolo PAC Control:
-- **Lectura valores**: `"9 0 }TBL_DT_0001 TRange.\r"`
-- **Lectura alarmas**: `"4 0 }TBL_DA_0001 TRange.\r"`
-- **Puerto**: 22001 TCP
-- **Respuesta**: Binario little endian (40 bytes valores, 20 bytes alarmas)
+}
+```
 
 ## Uso
 
@@ -163,130 +202,196 @@ Cada tag incluye:
 ```
 
 El servidor iniciará:
-1. Carga automática de configuración desde `pac_config.json` (21 TAGs)
-2. Conexión al dispositivo PAC S1 (puerto 22001)
-3. Servidor OPC UA en puerto 4840
-4. Mapeo dinámico de 315 variables OPC UA (21 TAGs × 15 variables c/u)
-5. Lectura cíclica de variables y alarmas PAC
-6. Actualización automática de nodos OPC UA
+1. **Carga de configuración** desde `pac_config.json`
+2. **Conexión PAC S1** (puerto 22001 con retry automático)
+3. **Servidor OPC UA** en puerto 4840
+4. **Mapeo dinámico** de variables con escritura inteligente
+5. **Lectura cíclica** de tablas e individuales
+6. **Escritura on-demand** desde clientes OPC UA
 
-### Conexión de Clientes OPC UA
+### Logs de Operación Normal
+
+```
+🚀 SERVIDOR OPC UA + CLIENTE PAC CONTROL INTEGRADO
+✅ Conectado al PAC en 192.168.1.30:22001
+🏗️ Creando nodos OPC UA con capacidad de escritura...
+✓ Tabla TBL_TT_11001 leída: 10 valores
+✅ Variable float individual leída: F_CPL_11001 = 1234.5
+📝 Variable ESCRIBIBLE: TT_11001.SetHH
+👁️ Variable SOLO LECTURA: TT_11001.PV
+🌐 Servidor OPC UA iniciado en puerto 4840
+```
+
+### Conectar Cliente OPC UA
 
 - **Endpoint**: `opc.tcp://localhost:4840`
 - **Namespace**: 1
-- **Nodos**: 315 variables PAC mapeadas automáticamente
-- **Estructura**: Cada TAG expone 10 variables + 5 alarmas
+- **Estructura de nodos**:
+  ```
+  Objects/
+  ├── TT_11001/           (TAG de temperatura)
+  │   ├── Input           (solo lectura)
+  │   ├── SetHH           (escribible)
+  │   ├── SetH            (escribible)
+  │   ├── PV              (solo lectura)
+  │   └── ...
+  ├── F_Current_Flow      (variable individual escribible)
+  ├── Status_Batch        (variable individual escribible)
+  └── ...
+  ```
 
-### Variables Mapeadas
+### Operaciones de Escritura
 
-Cada uno de los 21 TAGs expone:
-- **10 Variables de datos**: Engineering Unit, Tag-Desc, Present-Value, etc.
-- **5 Estados de alarma**: Hi-Hi-Alarm, Hi-Alarm, Lo-Alarm, Lo-Lo-Alarm, Comm-Alarm
-- **Actualización automática**: Valores leídos directamente del PAC S1
-- **Mapeo dinámico**: Sin necesidad de codificación manual
+#### Desde Cliente OPC UA:
+```
+Escribir TT_11001.SetHH = 85.5
+→ PAC: "85.5 1 }TBL_TT_11001 TABLE!\r"
+→ Log: "✅ Escritura exitosa en PAC: TT_11001.SetHH"
+
+Escribir F_Current_Flow = 123.45
+→ PAC: "123.45 ^F_CPL_11001 @!\r"  
+→ Log: "✅ Variable float individual leída: F_CPL_11001 = 123.45"
+```
+
+## Protocolo PAC Control - Detalles Técnicos
+
+### Manejo de Formatos Numéricos
+
+#### Notación Científica (Variables Individuales):
+```
+PAC Response: "1.234560e+05 "  → OPC UA: 123456.0
+PAC Response: "1.23e-03 "      → OPC UA: 0.00123
+PAC Response: "-2.34e-05 "     → OPC UA: -0.0000234
+```
+
+#### Valores Normales:
+```
+PAC Response: "1234.5 "        → OPC UA: 1234.5
+PAC Response: "42 "            → OPC UA: 42
+```
+
+### Terminadores de Protocolo:
+```
+Comando → PAC:     "comando\r"           (0x0D)
+PAC → Respuesta:   "valor "              (terminado en 0x20)
+Tabla → PAC:       datos binarios        (IEEE 754 little endian)
+```
 
 ## Troubleshooting
 
-### Error de Conexión PAC Control
+### Errores de Conexión PAC
 ```
-Error al conectar con PAC: Connection refused
+❌ Error al conectar con PAC: Connection refused
 ```
-- Verificar IP y puerto 22001 del PAC
-- Verificar conectividad de red
-- Verificar que el PAC esté ejecutándose
+**Solución**:
+- Verificar IP del PAC en `pac_config.json`
+- Verificar que puerto 22001 esté abierto
+- Verificar conectividad de red: `ping 192.168.1.30`
 
-### Error de Variable PAC
+### Errores de Protocolo
 ```
-Error leyendo TBL_PT_11001: Variable no encontrada
+⚠️ TIMEOUT recibiendo respuesta ASCII después de 3000ms
 ```
-- Verificar que la variable existe en el PAC
-- Revisar sintaxis del nombre de variable
-- Verificar permisos de acceso en el PAC
+**Solución**:
+- Verificar sintaxis de comando PAC
+- Revisar que la variable existe en el PAC
+- Aumentar timeout en configuración
 
-### Error de Compilación
+### Variables No Escribibles
 ```
-fatal error: open62541/server.h: No such file
+🔒 Variable de tabla SOLO LECTURA: TT_11001.PV
 ```
-- Instalar dependencias: `sudo apt-get install libopen62541-dev`
-- Verificar instalación de open62541
+**Comportamiento normal**: Solo variables SET_xxx, E_xxx, etc. son escribibles.
 
-### Variables OPC UA no se actualizan
-- Verificar conexión con PAC en puerto 22001
-- Revisar logs de consola para errores de protocolo
-- Verificar nombres de variables PAC en configuración
+### Debug Detallado
+Para debug completo, descomentar en `include/common.h`:
+```cpp
+#define ENABLE_VERBOSE   // ✅ Debug detallado activado
+```
 
-## Desarrollo
+Logs resultantes:
+```
+📡 Byte recibido: 0x31 ('1')
+📡 Byte recibido: 0x32 ('2')
+🔍 ASCII RESPONSE: '1234.5'
+✅ CONVERSIÓN EXITOSA: '1234.5' -> 1234.5
+```
 
-### Estado Actual del Proyecto
-- ✅ **Protocolo PAC Control**: Completamente implementado y funcional
-- ✅ **21 TAGs configurados**: Todos los TAGs reales del PAC S1 mapeados
-- ✅ **315 Variables OPC UA**: Mapeo dinámico automático
-- ✅ **Lectura de alarmas**: Todas las tablas de alarmas funcionales
-- ✅ **Debugging completo**: Sistema de logs comprehensive implementado
+## Desarrollo y Extensiones
 
-### Agregar Nuevos TAGs
-1. Editar `pac_config.json` agregando nuevo TAG
-2. Seguir formato existente: value_table, alarm_table, variables, alarms
-3. Reiniciar servidor para aplicar cambios
-4. Verificar en logs que el TAG se carga correctamente
+### Estado Actual
+- ✅ **Protocolo PAC Control**: Completamente implementado (lectura/escritura)
+- ✅ **Variables individuales**: Float/Int32 con notación científica
+- ✅ **Escritura inteligente**: Solo variables apropiadas
+- ✅ **21 TAGs configurados**: Mapeo completo del PAC S1
+- ✅ **Debug configurable**: Sistema de logs avanzado
+- ✅ **Manejo de errores**: Reconnección automática y validación
 
-### Modificar Configuración PAC
-- **IP del PAC**: Editar `pac_ip` en `pac_config.json`
-- **Puerto**: Editar `pac_port` (por defecto 22001)
-- **Variables por TAG**: Modificar array `variables` (máx. 10)
-- **Alarmas por TAG**: Modificar array `alarms` (máx. 5)
+### Agregar Nuevas Variables
 
-### Debugging y Logs
-El sistema incluye logging comprehensive:
-- Información de conexión PAC
-- Status de cada lectura de tabla
-- Errores de protocolo detallados
-- Estado de mapeo OPC UA
-- Performance de comunicaciones
+#### Variables Individuales:
+```json
+"global_float_variables": [
+    {
+        "name": "Nueva_Variable",
+        "pac_tag": "NUEVA_VAR_PAC", 
+        "description": "Descripción"
+    }
+]
+```
 
-### Arquitectura del Sistema
-- **Carga dinámica**: Configuración leída al inicio desde JSON
-- **Mapeo automático**: Variables OPC UA creadas dinámicamente
-- **Protocolo robusto**: Manejo de errores y reconexión automática
-- **Performance optimizada**: Lecturas paralelas de tablas PAC
+#### TAGs de Tabla:
+```json
+"tags": [
+    {
+        "name": "NUEVO_TAG",
+        "value_table": "TBL_NUEVO_TAG",
+        "alarm_table": "TBL_ALARMA_TAG",
+        "variables": ["Input", "SetHH", "SetH", "PV"],
+        "alarms": ["ALARM_HH", "ALARM_H"]
+    }
+]
+```
 
-## Notas Técnicas
+### Performance y Optimización
 
-### Protocolo PAC Control Reverse-Engineered
-- Formato de comando descifrado completamente
-- Protocolo binario little endian confirmado  
-- Manejo de errores de red implementado
-- Compatible con PAC Control versión actual
+#### Configuración de Intervalos:
+```json
+{
+    "update_interval_ms": 1000,    // Más frecuente = más carga
+    "pac_config": {
+        "timeout_ms": 3000         // Timeout más bajo = respuesta más rápida
+    }
+}
+```
 
-### Lectura de Tablas (Binario)
-    Comando: "9 0 }TBL_PT_11001 TRange.\r"
-    Respuesta: Binario IEEE 754 little endian (ej. 40 bytes para 10 floats)
-### Lectura de Variables Individuales (ASCII)
-    Comando float: ^F_CPL_11001 @@ F.\r
-    Comando int32: ^STATUS_BATCH @@ .\r
-    Respuesta: ASCII terminado en espacio (0x20), ej: "1234.5 " o "1.234560e+05 "
-### Escritura de Variables Individuales
-    Comando float: <valor> ^<variable> @!\r
-    Ejemplo: 123.45 ^F_CPL_11001 @!\r
-    Comando int32: <valor> ^<variable> @!\r
-    Ejemplo: 42 ^STATUS_BATCH @!\r
-    Respuesta: ASCII (puede ser eco o confirmación, depende del PAC)
-### Escritura en Tablas
-    Comando float: <valor> <index> }<tabla> TABLE!\r
-    Ejemplo: 123.45 2 }TBL_PT_11001 TABLE!\r
-    Comando int32: <valor> <index> }<tabla> TABLE!\r
-    Ejemplo: 42 3 }TBL_DA_0001 TABLE!\r
-    Respuesta: ASCII (puede ser eco o confirmación)
+#### Cache de Variables:
+```cpp
+// En pac_control_client..cpp
+cache_enabled = true;  // Habilitar cache para mejor performance
+```
 
-### Limitaciones Conocidas
-- Máximo 10 variables por TAG (limitación de protocolo PAC)
-- Máximo 5 alarmas por TAG (limitación de protocolo PAC)
-- Puerto PAC Control fijo en 22001 (estándar del sistema)
+## Arquitectura del Sistema
+
+### Flujo de Datos Completo:
+```
+Cliente OPC UA → Servidor OPC UA → PACControlClient → PAC S1
+     ↑                                                    ↓
+  Escritura                                         Lectura/Escritura
+     ↓                                                    ↑
+ Respuesta ← Mapeo Dinámico ← ASCII/Binario ← Protocolo PAC
+```
+
+### Tipos de Variables Soportadas:
+1. **Variables de tabla** (binario): 21 TAGs × 15 variables
+2. **Variables individuales** (ASCII): Float/Int32 ilimitadas
+3. **Escritura selectiva**: Solo variables apropiadas
+4. **Notación científica**: Soporte completo para rangos amplios
 
 ## Autor
 
 Jose Salamanca - PetroSantander SCADA Project  
-Protocolo PAC Control completamente reverse-engineered
+Protocolo PAC Control completamente reverse-engineered e implementado
 
 ## Licencia
 

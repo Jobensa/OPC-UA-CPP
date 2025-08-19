@@ -418,52 +418,88 @@ bool PACControlClient::sendCommand(const string &command)
     return true;
 }
 
+// CORRECCIÓN: Función para recibir datos con header PAC de 2 bytes
 vector<uint8_t> PACControlClient::receiveData(size_t expected_bytes)
 {
-    cout << "🔄 Esperando " << expected_bytes << " bytes del PAC..." << endl;
+    vector<uint8_t> buffer;
     
-    // 🔧 SOLUCIÓN: Buffer limpio inicializado con ceros para evitar datos residuales
-    vector<uint8_t> buffer(expected_bytes, 0);
-    size_t total_received = 0;
-
-    while (total_received < expected_bytes)
+    // CORRECCIÓN: El PAC envía 2 bytes de header + datos reales
+    size_t total_expected = expected_bytes + 2;  // 2 bytes header + datos
+    
+    DEBUG_VERBOSE("📥 Esperando " << total_expected << " bytes total (2 header + " << expected_bytes << " datos)");
+    
+    buffer.resize(total_expected);
+    size_t bytes_received = 0;
+    
+    auto start_time = chrono::steady_clock::now();
+    
+    while (bytes_received < total_expected)
     {
-        cout << "📡 Intentando recibir " << (expected_bytes - total_received) << " bytes..." << endl;
-        ssize_t bytes = recv(sock, buffer.data() + total_received,
-                             expected_bytes - total_received, 0);
-        if (bytes <= 0)
+        auto current_time = chrono::steady_clock::now();
+        auto elapsed = chrono::duration_cast<chrono::milliseconds>(current_time - start_time);
+        
+        if (elapsed.count() > 3000) // Timeout 3 segundos
         {
-            cout << "❌ recv() retornó: " << bytes << " (errno: " << errno << ")" << endl;
-            
-            // CRÍTICO: Marcar conexión como perdida cuando hay error de red
-            if (bytes == 0) {
-                cout << "🔌 CONEXIÓN CERRADA POR EL PAC - Marcando como desconectado" << endl;
-            } else {
-                cout << "🔌 ERROR DE RED - Marcando como desconectado" << endl;
-            }
-            connected = false;  // MARCAR COMO DESCONECTADO
-            
-            if (total_received > 0) {
-                cout << "📋 Datos parciales recibidos (" << total_received << " bytes): ";
-                for (size_t i = 0; i < total_received; i++) {
-                    cout << "0x" << hex << (int)buffer[i] << " ";
-                }
-                cout << dec << endl;
-                // Retornar los datos parciales en lugar de vector vacío
-                buffer.resize(total_received);
-                return buffer;
-            }
-            cerr << "Error recibiendo datos o conexión cerrada" << endl;
-            return {};
+            DEBUG_INFO("⚠️ TIMEOUT recibiendo datos binarios después de " << elapsed.count() << "ms");
+            DEBUG_INFO("📊 Recibidos " << bytes_received << " de " << total_expected << " bytes");
+            break;
         }
-        cout << "✅ Recibidos " << bytes << " bytes" << endl;
-        total_received += bytes;
+        
+        ssize_t result = recv(sock, buffer.data() + bytes_received, total_expected - bytes_received, MSG_DONTWAIT);
+        
+        if (result > 0)
+        {
+            bytes_received += result;
+            DEBUG_VERBOSE("📡 Recibidos " << result << " bytes, total: " << bytes_received << "/" << total_expected);
+        }
+        else if (result == 0)
+        {
+            DEBUG_INFO("❌ Conexión cerrada por el servidor");
+            break;
+        }
+        else
+        {
+            if (errno != EAGAIN && errno != EWOULDBLOCK)
+            {
+                DEBUG_INFO("❌ Error recv: " << strerror(errno));
+                break;
+            }
+        }
+        
+        this_thread::sleep_for(chrono::milliseconds(10));
     }
-
-    cout << "🎉 Total recibido: " << total_received << " bytes" << endl;
-    return buffer;
+    
+    buffer.resize(bytes_received);
+    
+    if (bytes_received < total_expected) {
+        DEBUG_INFO("⚠️ Datos incompletos: recibidos " << bytes_received << ", esperados " << total_expected);
+        return {};
+    }
+    
+    // CORRECCIÓN: Mostrar header (2 bytes) y datos por separado
+    DEBUG_INFO("📋 HEADER PAC (2 bytes): ");
+    for (size_t i = 0; i < 2 && i < bytes_received; i++) {
+        DEBUG_INFO(hex << setfill('0') << setw(2) << (int)buffer[i] << " ");
+    }
+    DEBUG_INFO(dec);
+    
+    DEBUG_INFO("📋 DATOS REALES (" << (bytes_received - 2) << " bytes): ");
+    for (size_t i = 2; i < bytes_received; i++) {
+        if ((i - 2) % 16 == 0 && i > 2) DEBUG_INFO("");
+        DEBUG_INFO(hex << setfill('0') << setw(2) << (int)buffer[i] << " ");
+    }
+    DEBUG_INFO(dec);
+    
+    // CORRECCIÓN: Retornar solo los datos sin el header de 2 bytes
+    if (bytes_received >= 2) {
+        vector<uint8_t> data_only(buffer.begin() + 2, buffer.end());
+        DEBUG_INFO("✓ Retornando " << data_only.size() << " bytes de datos (sin header de 2 bytes)");
+        return data_only;
+    } else {
+        DEBUG_INFO("❌ No hay suficientes datos para extraer header de 2 bytes");
+        return {};
+    }
 }
-
 // 🔧 NUEVO: Limpiar buffer del socket para evitar datos residuales
 void PACControlClient::flushSocketBuffer() {
     if (sock < 0 || !connected) return;
@@ -534,61 +570,81 @@ bool PACControlClient::validateDataIntegrity(const vector<uint8_t>& data, const 
     
     return true;
 }
-
-vector<float> PACControlClient::convertBytesToFloats(const vector<uint8_t> &bytes)
-{
+// CORRECCIÓN: Función para convertir bytes a floats (ahora con header correcto)
+vector<float> PACControlClient::convertBytesToFloats(const vector<uint8_t>& data) {
     vector<float> floats;
-
-    // Validar que tenemos múltiplos de 4 bytes para floats IEEE 754
-    if (bytes.size() % 4 != 0) {
-        cerr << "⚠️  ADVERTENCIA: Datos no alineados a 4 bytes (" << bytes.size() << " bytes)" << endl;
-    }
-
-    for (size_t i = 0; i + 3 < bytes.size(); i += 4)
-    {
-        // Leer 4 bytes como float IEEE 754 little endian
-        uint32_t int_val = bytes[i] |
-                           (bytes[i + 1] << 8) |
-                           (bytes[i + 2] << 16) |
-                           (bytes[i + 3] << 24);
-
-        float float_val;
-        memcpy(&float_val, &int_val, 4);
-        
-        // Validar que el float es un número válido (no NaN, no Infinity)
-        if (std::isnan(float_val) || std::isinf(float_val)) {
-            cout << "⚠️  ADVERTENCIA: Valor float inválido en posición " << i/4 << ": " << float_val << endl;
-            cout << "    Bytes raw: 0x" << hex << setfill('0') << setw(2) << (int)bytes[i] << " "
-                 << setw(2) << (int)bytes[i+1] << " " << setw(2) << (int)bytes[i+2] << " " 
-                 << setw(2) << (int)bytes[i+3] << dec << endl;
-            // En lugar de usar el valor inválido, usar 0.0
-            float_val = 0.0f;
+    
+    DEBUG_INFO("🔄 convertBytesToFloats: " << data.size() << " bytes de entrada (sin header de 2 bytes)");
+    
+    // Mostrar datos raw en hex por bloques de 4
+    DEBUG_INFO("🔍 RAW DATA por bloques de 4 bytes:");
+    for (size_t i = 0; i < data.size(); i += 4) {
+        if (i + 3 < data.size()) {
+            DEBUG_INFO("  Bytes[" << setw(2) << i << "-" << setw(2) << (i+3) << "]: " 
+                 << hex << setfill('0') << setw(2) << (int)data[i] << " "
+                 << setw(2) << (int)data[i+1] << " " << setw(2) << (int)data[i+2] << " "
+                 << setw(2) << (int)data[i+3] << dec);
         }
-        
-        floats.push_back(float_val);
     }
-
+    
+    if (data.size() % 4 != 0) {
+        DEBUG_INFO("⚠️ ADVERTENCIA: Tamaño de datos no es múltiplo de 4: " << data.size());
+    }
+    
+    for (size_t i = 0; i + 3 < data.size(); i += 4) {
+        
+        // USAR LITTLE ENDIAN (confirmado por el test Python)
+        uint32_t little_endian_val = data[i] | (data[i+1] << 8) | (data[i+2] << 16) | (data[i+3] << 24);
+        float little_endian_float;
+        memcpy(&little_endian_float, &little_endian_val, sizeof(float));
+        
+        DEBUG_INFO("  Float[" << i/4 << "]: bytes=" << hex << setfill('0') 
+             << setw(2) << (int)data[i] << " " << setw(2) << (int)data[i+1] << " "
+             << setw(2) << (int)data[i+2] << " " << setw(2) << (int)data[i+3] << dec
+             << " -> uint32=" << little_endian_val << " -> float=" << little_endian_float);
+        
+        // Verificar si el valor es razonable
+        if (std::isfinite(little_endian_float) && !std::isnan(little_endian_float)) {
+            floats.push_back(little_endian_float);
+            DEBUG_INFO("    ✅ Valor aceptado: " << little_endian_float);
+        } else {
+            DEBUG_INFO("    ⚠️ Valor extraño, usando 0.0: " << little_endian_float);
+            floats.push_back(0.0f);
+        }
+    }
+    
+    DEBUG_INFO("✓ Convertidos " << floats.size() << " floats");
+    DEBUG_INFO("🎯 Valores finales: ");
+    for (size_t i = 0; i < floats.size(); i++) {
+        DEBUG_INFO("  [" << i << "] = " << floats[i]);
+    }
+    
     return floats;
 }
 
-vector<int32_t> PACControlClient::convertBytesToInt32s(const vector<uint8_t> &bytes)
-{
-    vector<int32_t> ints;
-
-    for (size_t i = 0; i + 3 < bytes.size(); i += 4)
-    {
-        // Leer 4 bytes como int32 little endian
-        int32_t int_val = bytes[i] |
-                          (bytes[i + 1] << 8) |
-                          (bytes[i + 2] << 16) |
-                          (bytes[i + 3] << 24);
-
-        ints.push_back(int_val);
+// CORRECCIÓN: También actualizar convertBytesToInt32s para header de 2 bytes
+vector<int32_t> PACControlClient::convertBytesToInt32s(const vector<uint8_t>& data) {
+    vector<int32_t> int32s;
+    
+    DEBUG_INFO("🔄 convertBytesToInt32s: " << data.size() << " bytes de entrada (sin header de 2 bytes)");
+    
+    for (size_t i = 0; i + 3 < data.size(); i += 4) {
+        // Little endian para int32 también
+        uint32_t int_val = data[i] | (data[i+1] << 8) | (data[i+2] << 16) | (data[i+3] << 24);
+        
+        int32_t signed_val;
+        memcpy(&signed_val, &int_val, sizeof(int32_t));
+        
+        DEBUG_INFO("  Int32[" << i/4 << "]: bytes=" << hex << setfill('0') 
+             << setw(2) << (int)data[i] << " " << setw(2) << (int)data[i+1] << " "
+             << setw(2) << (int)data[i+2] << " " << setw(2) << (int)data[i+3] << dec
+             << " -> uint32=" << int_val << " -> int32=" << signed_val);
+        
+        int32s.push_back(signed_val);
     }
-
-    return ints;
+    
+    return int32s;
 }
-
 vector<uint8_t> PACControlClient::convertFloatsToBytes(const vector<float> &floats)
 {
     vector<uint8_t> bytes;
@@ -1236,7 +1292,7 @@ string PACControlClient::sendRawCommand(const string &command)
     return receiveResponse();
 }
 
-// Escribe un valor float en una variable individual del PAC
+// CORRECCIÓN: Actualizar writeSingleFloatVariable para usar confirmación de 2 bytes
 bool PACControlClient::writeSingleFloatVariable(const std::string& variable_name, float value) {
     lock_guard<mutex> lock(comm_mutex);
 
@@ -1250,25 +1306,29 @@ bool PACControlClient::writeSingleFloatVariable(const std::string& variable_name
     cmd << std::setprecision(7) << value << " ^" << variable_name << " @!\r";
     std::string command = cmd.str();
 
-    DEBUG_INFO("Comando de Escritura FLOAT: " << command);
+    DEBUG_INFO("🔥 Escribiendo variable FLOAT individual: " << variable_name << " = " << value);
+    DEBUG_VERBOSE("📋 Comando: '" << command.substr(0, command.length()-1) << "\\r'");
 
     flushSocketBuffer();
 
     if (!sendCommand(command)) {
-        cerr << "Error enviando comando de escritura float" << endl;
+        DEBUG_INFO("❌ Error enviando comando de escritura float");
         return false;
     }
 
-    // Leer respuesta (puedes ajustar el tamaño si lo deseas)
-    char response[64] = {0};
-    ssize_t bytes = recv(sock, response, sizeof(response), 0);
+    // CORRECCIÓN: Usar función específica para confirmación de escritura
+    bool success = receiveWriteConfirmation();
+    
+    if (success) {
+        DEBUG_INFO("✅ Variable FLOAT escrita exitosamente: " << variable_name << " = " << value);
+    } else {
+        DEBUG_INFO("❌ Error en escritura FLOAT: " << variable_name);
+    }
 
-    DEBUG_INFO("Respuesta escritura FLOAT: " << std::string(response, (bytes > 0 ? bytes : 0)));
-
-    return bytes > 0;
+    return success;
 }
 
-// Escribe un valor int32 en una variable individual del PAC
+// CORRECCIÓN: Actualizar writeSingleInt32Variable para usar confirmación de 2 bytes
 bool PACControlClient::writeSingleInt32Variable(const std::string& variable_name, int32_t value) {
     lock_guard<mutex> lock(comm_mutex);
 
@@ -1282,24 +1342,30 @@ bool PACControlClient::writeSingleInt32Variable(const std::string& variable_name
     cmd << value << " ^" << variable_name << " @!\r";
     std::string command = cmd.str();
 
-    DEBUG_INFO("Comando de Escritura INT32: " << command);
+    DEBUG_INFO("🔥 Escribiendo variable INT32 individual: " << variable_name << " = " << value);
+    DEBUG_VERBOSE("📋 Comando: '" << command.substr(0, command.length()-1) << "\\r'");
 
     flushSocketBuffer();
 
     if (!sendCommand(command)) {
-        cerr << "Error enviando comando de escritura int32" << endl;
+        DEBUG_INFO("❌ Error enviando comando de escritura int32");
         return false;
     }
 
-    char response[64] = {0};
-    ssize_t bytes = recv(sock, response, sizeof(response), 0);
+    // CORRECCIÓN: Usar función específica para confirmación de escritura
+    bool success = receiveWriteConfirmation();
+    
+    if (success) {
+        DEBUG_INFO("✅ Variable INT32 escrita exitosamente: " << variable_name << " = " << value 
+             << " (0x" << hex << value << dec << ")");
+    } else {
+        DEBUG_INFO("❌ Error en escritura INT32: " << variable_name);
+    }
 
-    DEBUG_INFO("Respuesta escritura INT32: " << std::string(response, (bytes > 0 ? bytes : 0)));
-
-    return bytes > 0;
+    return success;
 }
 
-// Escribe un valor float en una tabla del PAC en un índice específico
+// CORRECCIÓN: Actualizar writeFloatTableIndex para usar confirmación de 2 bytes
 bool PACControlClient::writeFloatTableIndex(const std::string& table_name, int index, float value) {
     lock_guard<mutex> lock(comm_mutex);
 
@@ -1313,24 +1379,32 @@ bool PACControlClient::writeFloatTableIndex(const std::string& table_name, int i
     cmd << std::setprecision(7) << value << " " << index << " }" << table_name << " TABLE!\r";
     std::string command = cmd.str();
 
-    DEBUG_INFO("Comando de Escritura Tabla FLOAT: " << command);
+    DEBUG_INFO("🔥 Escribiendo tabla FLOAT: " << table_name << "[" << index << "] = " << value);
+    DEBUG_VERBOSE("📋 Comando: '" << command.substr(0, command.length()-1) << "\\r'");
 
     flushSocketBuffer();
 
     if (!sendCommand(command)) {
-        cerr << "Error enviando comando de escritura tabla float" << endl;
+        DEBUG_INFO("❌ Error enviando comando de escritura tabla float");
         return false;
     }
 
-    char response[64] = {0};
-    ssize_t bytes = recv(sock, response, sizeof(response), 0);
+    // CORRECCIÓN: Usar función específica para confirmación de escritura
+    bool success = receiveWriteConfirmation();
+    
+    if (success) {
+        DEBUG_INFO("✅ Tabla FLOAT escrita exitosamente: " << table_name << "[" << index << "] = " << value);
+        
+        // Invalidar cache para esta tabla
+        clearCacheForTable(table_name);
+    } else {
+        DEBUG_INFO("❌ Error en escritura tabla FLOAT: " << table_name << "[" << index << "]");
+    }
 
-    DEBUG_INFO("Respuesta escritura tabla FLOAT: " << std::string(response, (bytes > 0 ? bytes : 0)));
-
-    return bytes > 0;
+    return success;
 }
 
-// Escribe un valor int32 en una tabla del PAC en un índice específico
+// CORRECCIÓN: Actualizar writeInt32TableIndex para usar confirmación de 2 bytes
 bool PACControlClient::writeInt32TableIndex(const std::string& table_name, int index, int32_t value) {
     lock_guard<mutex> lock(comm_mutex);
 
@@ -1344,21 +1418,98 @@ bool PACControlClient::writeInt32TableIndex(const std::string& table_name, int i
     cmd << value << " " << index << " }" << table_name << " TABLE!\r";
     std::string command = cmd.str();
 
-    DEBUG_INFO("Comando de Escritura Tabla INT32: " << command);
+    DEBUG_INFO("🔥 Escribiendo tabla INT32: " << table_name << "[" << index << "] = " << value);
+    DEBUG_VERBOSE("📋 Comando: '" << command.substr(0, command.length()-1) << "\\r'");
 
     flushSocketBuffer();
 
     if (!sendCommand(command)) {
-        cerr << "Error enviando comando de escritura tabla int32" << endl;
+        DEBUG_INFO("❌ Error enviando comando de escritura tabla int32");
         return false;
     }
 
-    char response[64] = {0};
-    ssize_t bytes = recv(sock, response, sizeof(response), 0);
+    // CORRECCIÓN: Usar función específica para confirmación de escritura
+    bool success = receiveWriteConfirmation();
+    
+    if (success) {
+        DEBUG_INFO("✅ Tabla INT32 escrita exitosamente: " << table_name << "[" << index << "] = " << value 
+             << " (0x" << hex << value << dec << ")");
+        
+        // Invalidar cache para esta tabla
+        clearCacheForTable(table_name);
+    } else {
+        DEBUG_INFO("❌ Error en escritura tabla INT32: " << table_name << "[" << index << "]");
+    }
 
-    DEBUG_INFO("Respuesta escritura tabla INT32: " << std::string(response, (bytes > 0 ? bytes : 0)));
-
-    return bytes > 0;
+    return success;
 }
+
+// NUEVA FUNCIÓN: Limpiar cache específico de una tabla
+void PACControlClient::clearCacheForTable(const std::string& table_name) {
+    auto it = table_cache.begin();
+    while (it != table_cache.end()) {
+        if (it->first.find(table_name) == 0) {  // La clave comienza con el nombre de la tabla
+            DEBUG_VERBOSE("🧹 Limpiando cache para: " << it->first);
+            it = table_cache.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+// NUEVA FUNCIÓN: Recibir confirmación de escritura (2 bytes: 00 00)
+bool PACControlClient::receiveWriteConfirmation() {
+    vector<uint8_t> buffer(2);  // Solo 2 bytes esperados
+    size_t bytes_received = 0;
+    
+    auto start_time = chrono::steady_clock::now();
+    const int timeout_ms = 3000; // 3 segundos timeout
+    
+    DEBUG_VERBOSE("📥 Esperando confirmación de escritura (2 bytes)...");
+    
+    while (bytes_received < 2) {
+        auto elapsed = chrono::duration_cast<chrono::milliseconds>(
+            chrono::steady_clock::now() - start_time).count();
+        
+        if (elapsed > timeout_ms) {
+            DEBUG_INFO("⏰ TIMEOUT esperando confirmación de escritura después de " << elapsed << "ms");
+            return false;
+        }
+        
+        ssize_t result = recv(sock, buffer.data() + bytes_received, 2 - bytes_received, MSG_DONTWAIT);
+        
+        if (result > 0) {
+            bytes_received += result;
+            DEBUG_VERBOSE("📡 Recibidos " << result << " bytes de confirmación, total: " << bytes_received << "/2");
+        } else if (result == 0) {
+            DEBUG_INFO("❌ Conexión cerrada por el servidor durante escritura");
+            connected = false;
+            return false;
+        } else {
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                DEBUG_INFO("❌ Error recv en confirmación: " << strerror(errno));
+                return false;
+            }
+        }
+        
+        this_thread::sleep_for(chrono::milliseconds(10));
+    }
+    
+    // Verificar que la respuesta sea 00 00
+    bool is_success = (buffer[0] == 0x00 && buffer[1] == 0x00);
+    
+    DEBUG_INFO("📋 Confirmación escritura: " << hex << setfill('0') 
+         << setw(2) << (int)buffer[0] << " " << setw(2) << (int)buffer[1] << dec
+         << " -> " << (is_success ? "✅ ÉXITO" : "❌ ERROR"));
+    
+    if (!is_success) {
+        DEBUG_INFO("⚠️ Respuesta inesperada de escritura: esperado 00 00, recibido " 
+             << hex << setw(2) << (int)buffer[0] << " " << setw(2) << (int)buffer[1] << dec);
+    }
+    
+    return is_success;
+}
+
+
 
 
