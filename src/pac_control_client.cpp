@@ -57,16 +57,13 @@ bool PACControlClient::connect()
         return false;
     }
 
-    cout << "🔄 Intentando conectar a PAC: " << pac_ip << ":" << pac_port << endl;
     if (::connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
     {
-        cerr << "❌ Error conectando a " << pac_ip << ":" << pac_port << " - PAC no disponible" << endl;
         close(sock);
         return false;
     }
 
     connected = true;
-    cout << "✓ Conectado al PAC Control: " << pac_ip << ":" << pac_port << endl;
     return true;
 }
 
@@ -261,16 +258,13 @@ vector<int32_t> PACControlClient::readInt32Table(const string &table_name,
     
     // Detectar tipo de tabla y usar comando apropiado
     if (table_name.find("TBL_DA_") != string::npos) {
-        cout << "🚨 PROBANDO TABLA DE ALARMAS INT32: " << table_name << endl;
         // Para alarmas, usar mismo formato que funciona para floats
         cmd << "9 0 }" << table_name << " TRange.\r";
     } else {
-        cout << "📊 LEYENDO TABLA INT32: " << table_name << endl;
         cmd << "9 0 }" << table_name << " TRange.\r";
     }
 
     string command = cmd.str();
-    cout << "Enviando comando int32: " << command << endl;
 
     if (!sendCommand(command))
     {
@@ -289,29 +283,8 @@ vector<int32_t> PACControlClient::readInt32Table(const string &table_name,
         return {};
     }
 
-    // 🔍 DIAGNÓSTICO INT32: Mostrar datos RAW recibidos
-    cout << "🔍 INT32 RAW DATA (" << raw_data.size() << " bytes): ";
-    for (size_t i = 0; i < min(raw_data.size(), size_t(32)); i++) {
-        cout << hex << setfill('0') << setw(2) << (int)raw_data[i] << " ";
-    }
-    cout << dec << endl;
-
-    // 🔍 DIAGNÓSTICO INT32: Interpretación como texto ASCII
-    cout << "🔍 INT32 AS ASCII: \"";
-    for (size_t i = 0; i < min(raw_data.size(), size_t(32)); i++) {
-        char c = raw_data[i];
-        cout << (isprint(c) ? c : '.');
-    }
-    cout << "\"" << endl;
-
     // Convertir bytes a int32 (little endian)
     vector<int32_t> ints = convertBytesToInt32s(raw_data);
-
-    cout << "✓ Tabla int32 " << table_name << " leída: " << ints.size() << " valores" << endl;
-    for (size_t i = 0; i < ints.size(); i++)
-    {
-        cout << "  [" << (start_pos + i) << "] = " << ints[i] << " (0x" << hex << ints[i] << dec << ")" << endl;
-    }
 
     return ints;
 }
@@ -512,7 +485,7 @@ void PACControlClient::flushSocketBuffer() {
     fcntl(sock, F_SETFL, flags);
     
     if (flushed_bytes > 0) {
-        cout << "🧹 BUFFER LIMPIADO: Eliminados " << flushed_bytes << " bytes residuales del socket" << endl;
+        // cout << "🧹 BUFFER LIMPIADO: Eliminados " << flushed_bytes << " bytes residuales del socket" << endl;
     }
 }
 
@@ -884,9 +857,9 @@ vector<int32_t> PACControlClient::readTableAsInt32(const string& table_name,
     // Convertir bytes a int32 (little endian)
     vector<int32_t> ints = convertBytesToInt32s(raw_data);
 
-    cout << "✓ Tabla int32 " << table_name << " leída: " << ints.size() << " valores" << endl;
+    // cout << "✓ Tabla int32 " << table_name << " leída: " << ints.size() << " valores" << endl;
     for (size_t i = 0; i < ints.size(); i++) {
-        cout << "  [" << (start_pos + i) << "] = " << ints[i] << endl;
+        // cout << "  [" << (start_pos + i) << "] = " << ints[i] << endl;
     }
 
     return ints;

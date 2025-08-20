@@ -13,6 +13,7 @@ using json = nlohmann::json;
 UA_Server *server = nullptr;
 std::atomic<bool> running{true};
 bool server_running = true;
+bool updating_internally = false;  // Bandera para evitar callback durante actualizaciones internas
 std::unique_ptr<PACControlClient> pacClient;
 Config config;
 std::mutex update_mutex;
@@ -191,12 +192,17 @@ static void writeCallback(UA_Server *server,
                          const UA_NumericRange *range,
                          const UA_DataValue *data) {
     
+    // Si estamos actualizando internamente, no procesar el callback
+    if (updating_internally) {
+        return;
+    }
+    
     if (nodeId->identifierType != UA_NODEIDTYPE_STRING) return;
     
     string nodeIdStr = string((char*)nodeId->identifier.string.data, 
                              nodeId->identifier.string.length);
     
-    cout << "✍️ Escritura OPC-UA: " << nodeIdStr << endl;
+    // Mensaje simple para escrituras del cliente
     
     if (!pacClient || !pacClient->isConnected()) {
         cout << "❌ Sin conexión PAC" << endl;
@@ -229,11 +235,9 @@ static void writeCallback(UA_Server *server,
             string table = var->pac_source.substr(0, pos);
             int index = stoi(var->pac_source.substr(pos + 1));
             success = pacClient->writeFloatTableIndex(table, index, value);
-            cout << "📝 Escribiendo tabla " << table << "[" << index << "] = " << value << endl;
         } else {
             // Variable simple individual
             success = pacClient->writeSingleFloatVariable(var->pac_source, value);
-            cout << "📝 Escribiendo variable simple " << var->pac_source << " = " << value << endl;
         }
     }
     else if (var->type == Variable::INT32 && data->value.type == &UA_TYPES[UA_TYPES_INT32]) {
@@ -246,19 +250,13 @@ static void writeCallback(UA_Server *server,
             string table = var->pac_source.substr(0, pos);
             int index = stoi(var->pac_source.substr(pos + 1));
             success = pacClient->writeInt32TableIndex(table, index, value);
-            cout << "📝 Escribiendo tabla " << table << "[" << index << "] = " << value << endl;
         } else {
             // Variable simple individual
             success = pacClient->writeSingleInt32Variable(var->pac_source, value);
-            cout << "📝 Escribiendo variable simple " << var->pac_source << " = " << value << endl;
         }
     }
     
-    if (success) {
-        cout << "✅ Escritura exitosa" << endl;
-    } else {
-        cout << "❌ Error en escritura" << endl;
-    }
+    // No mostrar resultado de escritura
 }
 
 // ============== CREACIÓN DE NODOS ==============
@@ -352,10 +350,11 @@ void createNodes() {
 // ============== ACTUALIZACIÓN DE DATOS ==============
 
 void updateData() {
-    cout << "🔄 Iniciando actualización de datos..." << endl;
-    
     while (running && server_running) {
         if (pacClient && pacClient->isConnected()) {
+            // Activar bandera de actualización interna
+            updating_internally = true;
+            
             // Separar variables por tipo
             vector<Variable*> simpleVars;      // Variables individuales (F_xxx, I_xxx)
             map<string, vector<Variable*>> tableVars;  // Variables de tabla (TBL_xxx:índice)
@@ -481,18 +480,20 @@ void updateData() {
                 // Pequeña pausa entre tablas
                 this_thread::sleep_for(chrono::milliseconds(50));
             }
+            
+            // Desactivar bandera de actualización interna
+            updating_internally = false;
         } else {
             // Sin conexión PAC - intentar reconectar cada 10 segundos
             static auto lastReconnect = chrono::steady_clock::now();
             auto now = chrono::steady_clock::now();
             if (chrono::duration_cast<chrono::seconds>(now - lastReconnect).count() >= 10) {
-                cout << "🔄 Intentando reconectar PAC..." << endl;
                 pacClient.reset();
                 pacClient = make_unique<PACControlClient>(config.pac_ip, config.pac_port);
                 if (pacClient->connect()) {
-                    cout << "✅ Reconectado a PAC" << endl;
+                    // Reconectado
                 } else {
-                    cout << "❌ Fallo en reconexión" << endl;
+                    // Fallo en reconexión
                 }
                 lastReconnect = now;
             }
@@ -501,8 +502,6 @@ void updateData() {
         // Esperar intervalo de actualización
         this_thread::sleep_for(chrono::milliseconds(config.update_interval_ms));
     }
-    
-    cout << "🔄 Actualización de datos terminada" << endl;
 }
 
 // ============== FUNCIONES PRINCIPALES ==============
@@ -534,12 +533,11 @@ void ServerInit() {
     }
     
     cout << "✅ Servidor inicializado correctamente" << endl;
-    cout << "📊 Variables configuradas: " << config.variables.size() << endl;
+    // Inicializar configuración
 }
 
 UA_StatusCode runServer() {
-    cout << "▶️ Ejecutando servidor OPC UA en puerto " << config.opcua_port << endl;
-    cout << "📡 URL: opc.tcp://localhost:" << config.opcua_port << endl;
+    cout << "▶️ Servidor OPC UA iniciado en puerto " << config.opcua_port << endl;
     
     // Iniciar hilo de actualización
     thread updateThread(updateData);
