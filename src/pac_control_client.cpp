@@ -104,13 +104,17 @@ vector<float> PACControlClient::readFloatTable(const string &table_name,
 
     stringstream cmd;
     
-    // Detectar tipo de tabla y usar comando apropiado
+    DEBUG_VERBOSE("📊 PARÁMETROS: start_pos=" << start_pos << ", end_pos=" << end_pos);
+    
+    // 🔧 COMANDO CORRECTO según README.md: Formato "<end_pos> 0 }<tabla> TRange.\r"
+    // Ejemplo: "9 0 }TBL_TT_11006 TRange.\r" - SIEMPRE usar end_pos=9 para leer tabla completa (10 elementos, índices 0-9)
+    // El PAC siempre devuelve la tabla completa independientemente del mapeo JSON
     if (table_name.find("TBL_DA_") != string::npos) {
         DEBUG_VERBOSE("🚨 LEYENDO TABLA DE ALARMAS: " << table_name);
-        cmd << end_pos << " 0 }" << table_name << " TRange.\r";
+        cmd << "9 0 }" << table_name << " TRange.\r";
     } else {
         DEBUG_VERBOSE("📊 LEYENDO TABLA DE DATOS: " << table_name);
-        cmd << end_pos << " 0 }" << table_name << " TRange.\r";
+        cmd << "9 0 }" << table_name << " TRange.\r";
     }
 
     string command = cmd.str();
@@ -131,66 +135,57 @@ vector<float> PACControlClient::readFloatTable(const string &table_name,
         return {};
     }
 
-    // CORRECCIÓN: El PAC responde con tamaño variable para tablas
-    // Intentar con el tamaño máximo y ajustar según lo que realmente llega
-    size_t expected_bytes = 40; // Máximo esperado (10 floats × 4 bytes)
+    // 🔧 SOLUCIÓN: Las tablas responden en BINARIO con header 00 00
+    // A diferencia de variables simples que responden en ASCII terminado en 0x20
+    size_t expected_bytes = 40; // 10 floats × 4 bytes = 40 bytes de datos
 
     vector<uint8_t> raw_data = receiveData(expected_bytes);
     if (raw_data.empty())
     {
-        cerr << "Error recibiendo datos de tabla" << endl;
+        cerr << "Error recibiendo datos binarios de tabla" << endl;
         return {};
     }
     
-    // 🔧 SOLUCIÓN: Validar integridad de los datos recibidos
-    if (!validateDataIntegrity(raw_data, table_name)) {
-        DEBUG_VERBOSE("⚠️  DATOS RECHAZADOS por validación de integridad: " << table_name);
-        
-        // 🔧 RETRY: Intentar una segunda vez con delay si hay contaminación
-        DEBUG_VERBOSE("🔄 REINTENTANDO lectura después de 100ms...");
-        this_thread::sleep_for(chrono::milliseconds(100));
-        
-        flushSocketBuffer();
-        if (sendCommand(command)) {
-            vector<uint8_t> retry_data = receiveData(expected_bytes);
-            if (!retry_data.empty() && validateDataIntegrity(retry_data, table_name)) {
-                DEBUG_VERBOSE("✅ RETRY EXITOSO: Datos válidos obtenidos en segundo intento");
-                raw_data = retry_data;
-            } else {
-                DEBUG_VERBOSE("❌ RETRY FALLIDO: Datos siguen siendo inválidos");
-                return {};
-            }
-        } else {
-            return {};
-        }
-    }
-
-    // 🔍 DIAGNÓSTICO: Mostrar datos RAW recibidos con análisis detallado
-    DEBUG_VERBOSE("🔍 RAW DATA (" << raw_data.size() << " bytes): ");
-    for (size_t i = 0; i < min(raw_data.size(), size_t(40)); i++) {
+    DEBUG_VERBOSE("📋 DATOS BINARIOS TABLA (" << raw_data.size() << " bytes): ");
+    for (size_t i = 0; i < raw_data.size(); i++) {
         DEBUG_VERBOSE(hex << setfill('0') << setw(2) << (int)raw_data[i] << " ");
     }
     DEBUG_VERBOSE(dec);
     
-    // Análisis de patrones en los datos
-    DEBUG_VERBOSE("🔍 ANÁLISIS DE PATRONES:");
-    for (size_t i = 0; i < min(raw_data.size(), size_t(40)); i += 4) {
-        if (i + 3 < raw_data.size()) {
-            uint32_t as_int = raw_data[i] | (raw_data[i+1] << 8) | (raw_data[i+2] << 16) | (raw_data[i+3] << 24);
-            float as_float;
-            memcpy(&as_float, &as_int, 4);
-            DEBUG_VERBOSE("  [" << i/4 << "] Raw: " << hex << setfill('0') << setw(2) << (int)raw_data[i] 
-                 << " " << setw(2) << (int)raw_data[i+1] << " " << setw(2) << (int)raw_data[i+2] 
-                 << " " << setw(2) << (int)raw_data[i+3] << dec
-                 << " -> int32=" << as_int << " float=" << as_float);
-        }
+    // Convertir bytes a floats (IEEE 754 little endian)
+    vector<float> floats;
+    for (size_t i = 0; i + 3 < raw_data.size(); i += 4) {
+        uint32_t raw_bits = raw_data[i] | 
+                           (raw_data[i+1] << 8) | 
+                           (raw_data[i+2] << 16) | 
+                           (raw_data[i+3] << 24);
+        
+        float value;
+        memcpy(&value, &raw_bits, 4);
+        floats.push_back(value);
+        
+        DEBUG_VERBOSE("📊 [" << (i/4) << "] Raw: " << hex << setfill('0') << setw(8) << raw_bits 
+                     << dec << " -> float: " << value);
     }
     
-    // Análisis de estabilidad de datos
-    analyzeDataStability(table_name, raw_data);
+    DEBUG_VERBOSE("📊 Total valores parseados: " << floats.size());
+    
+    // Si el cache está habilitado, guardar los datos
+    
+    // Si el cache está habilitado, guardar los datos
+    if (cache_enabled && !floats.empty()) {
+        table_cache[cache_key] = {floats, chrono::steady_clock::now(), true};
+        DEBUG_VERBOSE("💾 DATOS GUARDADOS EN CACHE: " << table_name << " con " << floats.size() << " valores");
+    }
 
-    // Convertir bytes a floats (IEEE 754 little endian)
-    vector<float> floats = convertBytesToFloats(raw_data);
+    DEBUG_INFO("✓ Tabla " << table_name << " leída: " << floats.size() << " valores");
+    for (size_t i = 0; i < floats.size(); i++)
+    {
+        DEBUG_VERBOSE("  [" << (start_pos + i) << "] = " << floats[i]);
+    }
+
+    return floats;
+    DEBUG_VERBOSE("📊 Total valores parseados: " << floats.size());
 
     // Verificar consistencia de datos comparando con cache anterior
     auto prev_cache = table_cache.find(cache_key);
@@ -261,17 +256,17 @@ vector<int32_t> PACControlClient::readInt32Table(const string &table_name,
     }
 
     // Comando PAC Control CORRECTO para int32 (alarmas):
-    // Formato: "9 0 }TBL_DA_0001 TRange.\r" (mismo formato que floats)
+    // Ejemplo: "9 0 }TBL_DA_0001 TRange.\r" - SIEMPRE usar end_pos=9 para tabla completa
     stringstream cmd;
     
     // Detectar tipo de tabla y usar comando apropiado
     if (table_name.find("TBL_DA_") != string::npos) {
         cout << "🚨 PROBANDO TABLA DE ALARMAS INT32: " << table_name << endl;
         // Para alarmas, usar mismo formato que funciona para floats
-        cmd << end_pos << " 0 }" << table_name << " TRange.\r";
+        cmd << "9 0 }" << table_name << " TRange.\r";
     } else {
         cout << "📊 LEYENDO TABLA INT32: " << table_name << endl;
-        cmd << end_pos << " 0 }" << table_name << " TRange.\r";
+        cmd << "9 0 }" << table_name << " TRange.\r";
     }
 
     string command = cmd.str();
@@ -433,53 +428,20 @@ vector<uint8_t> PACControlClient::receiveData(size_t expected_bytes)
     
     auto start_time = chrono::steady_clock::now();
     
+    // 🔧 CORREGIDO: Loop principal de recepción
     while (bytes_received < total_expected)
     {
         auto current_time = chrono::steady_clock::now();
         auto elapsed = chrono::duration_cast<chrono::milliseconds>(current_time - start_time);
         
-    // NUEVO: Verificar si recibimos menos bytes (probablemente error ASCII)
-    if (bytes_received < total_expected && bytes_received > 0)
-    {
-        buffer.resize(bytes_received);
-        DEBUG_INFO("⚠️ Respuesta incompleta (" << bytes_received << " bytes) - Verificando si es error ASCII");
-        
-        // Verificar si los datos son ASCII (caracteres imprimibles)
-        bool is_ascii = true;
-        string ascii_content;
-        for (size_t i = 2; i < bytes_received && i < 50; i++) // Saltar header de 2 bytes
-        {
-            uint8_t byte = buffer[i];
-            if (byte >= 32 && byte <= 126) // Caracteres ASCII imprimibles
-            {
-                ascii_content += char(byte);
-            }
-            else if (byte == 0 || byte == '\r' || byte == '\n') // Terminadores comunes
-            {
-                // OK, continuar
-            }
-            else
-            {
-                is_ascii = false;
-                break;
-            }
+        // Timeout después de 3 segundos
+        if (elapsed.count() > 3000) {
+            DEBUG_INFO("⏰ TIMEOUT recibiendo datos después de " << elapsed.count() << "ms");
+            break;
         }
         
-        if (is_ascii && ascii_content.length() > 5)
-        {
-            DEBUG_INFO("🚨 ERROR PAC detectado (ASCII): '" << ascii_content << "'");
-            DEBUG_INFO("📋 Datos recibidos son un mensaje de error, no datos de tabla");
-            return {}; // Retornar vacío para indicar error
-        }
-    }
-    
-    if (bytes_received < total_expected)
-    {
-        DEBUG_INFO("⚠️ Datos incompletos: recibidos " << bytes_received << ", esperados " << total_expected);
-        return {};
-    }
-        
-        ssize_t result = recv(sock, buffer.data() + bytes_received, total_expected - bytes_received, MSG_DONTWAIT);
+        // � CORREGIDO: recv() en modo bloqueante normal
+        ssize_t result = recv(sock, buffer.data() + bytes_received, total_expected - bytes_received, 0);
         
         if (result > 0)
         {
@@ -493,41 +455,35 @@ vector<uint8_t> PACControlClient::receiveData(size_t expected_bytes)
         }
         else
         {
-            if (errno != EAGAIN && errno != EWOULDBLOCK)
-            {
-                DEBUG_INFO("❌ Error recv: " << strerror(errno));
-                break;
-            }
+            DEBUG_INFO("❌ Error recv: " << strerror(errno));
+            break;
         }
-        
-        this_thread::sleep_for(chrono::milliseconds(10));
     }
     
-    buffer.resize(bytes_received);
-    
-    if (bytes_received < total_expected) {
+    // 🔧 CORREGIDO: Verificar datos después del loop
+    if (bytes_received < total_expected)
+    {
         DEBUG_INFO("⚠️ Datos incompletos: recibidos " << bytes_received << ", esperados " << total_expected);
         return {};
     }
     
     // CORRECCIÓN: Mostrar header (2 bytes) y datos por separado
-    DEBUG_INFO("📋 HEADER PAC (2 bytes): ");
+    DEBUG_VERBOSE("📋 HEADER PAC (2 bytes): ");
     for (size_t i = 0; i < 2 && i < bytes_received; i++) {
-        DEBUG_INFO(hex << setfill('0') << setw(2) << (int)buffer[i] << " ");
+        DEBUG_VERBOSE(hex << setfill('0') << setw(2) << (int)buffer[i] << " ");
     }
-    DEBUG_INFO(dec);
+    DEBUG_VERBOSE(dec);
     
-    DEBUG_INFO("📋 DATOS REALES (" << (bytes_received - 2) << " bytes): ");
-    for (size_t i = 2; i < bytes_received; i++) {
-        if ((i - 2) % 16 == 0 && i > 2) DEBUG_INFO("");
-        DEBUG_INFO(hex << setfill('0') << setw(2) << (int)buffer[i] << " ");
+    DEBUG_VERBOSE("📋 DATOS REALES (" << (bytes_received - 2) << " bytes): ");
+    for (size_t i = 2; i < min(bytes_received, size_t(22)); i++) {
+        DEBUG_VERBOSE(hex << setfill('0') << setw(2) << (int)buffer[i] << " ");
     }
-    DEBUG_INFO(dec);
+    DEBUG_VERBOSE(dec);
     
     // CORRECCIÓN: Retornar solo los datos sin el header de 2 bytes
     if (bytes_received >= 2) {
         vector<uint8_t> data_only(buffer.begin() + 2, buffer.end());
-        DEBUG_INFO("✅ Tabla válida: Retornando " << data_only.size() << " bytes de datos (sin header de 2 bytes)");
+        DEBUG_VERBOSE("✅ Tabla válida: Retornando " << data_only.size() << " bytes de datos (sin header de 2 bytes)");
         return data_only;
     } else {
         DEBUG_INFO("❌ No hay suficientes datos para extraer header de 2 bytes");
@@ -785,7 +741,7 @@ bool PACControlClient::detectDataType(const string& table_name, bool& is_integer
     
     // Leer una muestra pequeña de datos
     stringstream cmd;
-    cmd << "1 0 }" << table_name << " TRange.\r";
+    cmd << "9 0 }" << table_name << " TRange.\r";
     
     string command = cmd.str();
     
@@ -876,7 +832,7 @@ vector<int32_t> PACControlClient::readTableAsInt32(const string& table_name,
     string cache_key = table_name + "_int32_" + to_string(start_pos) + "_" + to_string(end_pos);
     
     stringstream cmd;
-    cmd << end_pos << " 0 }" << table_name << " TRange.\r";
+    cmd << "9 0 }" << table_name << " TRange.\r";
 
     string command = cmd.str();
     cout << "📊 LEYENDO TABLA INT32: " << table_name << endl;

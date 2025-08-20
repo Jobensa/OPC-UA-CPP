@@ -23,7 +23,7 @@ Este proyecto implementa un servidor OPC UA que se comunica directamente con dis
 #### Lectura de Tablas (Respuesta Binaria)
 - **Formato**: `"<end_pos> 0 }<tabla> TRange.\r"`
 - **Ejemplo**: `"9 0 }TBL_PT_11001 TRange.\r"`
-- **Respuesta**: Binario IEEE 754 little endian (40 bytes para 10 floats)
+- **Respuesta**: head 00 y Binario IEEE 754 little endian (40 bytes para 10 floats)
 
 #### Lectura de Variables Individuales (Respuesta ASCII)
 - **Float**: `^<variable> @@ F.\r`

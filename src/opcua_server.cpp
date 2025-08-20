@@ -20,7 +20,10 @@ std::mutex update_mutex;
 // ============== FUNCIONES AUXILIARES ==============
 
 int getVariableIndex(const std::string& varName) {
-    // Variables estándar de instrumentos
+    // Mapeo correcto según la estructura real de las tablas PAC:
+    // 0: Input/Value, 1: SetHH, 2: SetH, 3: SetL, 4: SetLL, 5: SIM_Value
+    // 6: PV, 7: min, 8: max, 9: percent
+    if (varName == "Value") return 0;
     if (varName == "Input") return 0;
     if (varName == "SetHH") return 1;
     if (varName == "SetH") return 2;
@@ -28,12 +31,23 @@ int getVariableIndex(const std::string& varName) {
     if (varName == "SetLL") return 4;
     if (varName == "SIM_Value") return 5;
     if (varName == "PV") return 6;
+    if (varName == "min") return 7;
     if (varName == "Min") return 7;
+    if (varName == "max") return 8;
     if (varName == "Max") return 8;
+    if (varName == "percent") return 9;
     if (varName == "Percent") return 9;
     
-    // Variables de alarma
-    if (varName == "ALARM_HH") return 0;
+    // Variables de alarma - estructura TBL_TA_XXXXX (INT32)
+    // 0: Bits HH, 1: Bits H, 2: Bits L, 3: Bits LL, 4: Color_alarm
+    if (varName == "HH") return 0;         // Bits de alarma HH
+    if (varName == "H") return 1;          // Bits de alarma H  
+    if (varName == "L") return 2;          // Bits de alarma L
+    if (varName == "LL") return 3;         // Bits de alarma LL
+    if (varName == "Color") return 4;      // Color de alarma
+    
+    // Compatibilidad con nombres alternativos
+    if (varName == "ALARM_HH") return 0;   
     if (varName == "ALARM_H") return 1;
     if (varName == "ALARM_L") return 2;
     if (varName == "ALARM_LL") return 3;
