@@ -55,9 +55,9 @@ bool loadConfig() {
     cout << "📄 Cargando configuración..." << endl;
     
     try {
-        ifstream configFile("pac_config copy.json");
+        ifstream configFile("tags.json");
         if (!configFile.is_open()) {
-            cout << "❌ No se pudo abrir pac_config copy.json" << endl;
+            cout << "❌ No se pudo abrir tags.json" << endl;
             return false;
         }
         
@@ -133,6 +133,30 @@ bool loadConfig() {
             }
         }
         
+        // Cargar variables simples individuales
+        if (configJson.contains("simple_variables")) {
+            for (const auto& varJson : configJson["simple_variables"]) {
+                Variable var;
+                var.opcua_name = varJson.value("opcua_name", "");
+                var.pac_source = varJson.value("pac_source", "");
+                var.writable = varJson.value("writable", false);
+                
+                // Determinar tipo
+                string typeStr = varJson.value("type", "FLOAT");
+                if (typeStr == "INT32") {
+                    var.type = Variable::INT32;
+                } else {
+                    var.type = Variable::FLOAT;
+                }
+                
+                // Para variables simples, el tag_name y var_name son el opcua_name
+                var.tag_name = "SimpleVariables";
+                var.var_name = var.opcua_name;
+                
+                config.variables.push_back(var);
+            }
+        }
+        
         cout << "✓ Configuración cargada: " << config.tags.size() << " tags, " 
              << config.variables.size() << " variables" << endl;
         return true;
@@ -184,25 +208,35 @@ static void writeCallback(UA_Server *server,
     if (var->type == Variable::FLOAT && data->value.type == &UA_TYPES[UA_TYPES_FLOAT]) {
         float value = *(UA_Float*)data->value.data;
         
-        // Extraer tabla e índice del pac_source
+        // Verificar si es variable de tabla o simple
         size_t pos = var->pac_source.find(':');
         if (pos != string::npos) {
+            // Variable de tabla con índice específico
             string table = var->pac_source.substr(0, pos);
             int index = stoi(var->pac_source.substr(pos + 1));
             success = pacClient->writeFloatTableIndex(table, index, value);
-            cout << "📝 Escribiendo " << table << "[" << index << "] = " << value << endl;
+            cout << "📝 Escribiendo tabla " << table << "[" << index << "] = " << value << endl;
+        } else {
+            // Variable simple individual
+            success = pacClient->writeSingleFloatVariable(var->pac_source, value);
+            cout << "📝 Escribiendo variable simple " << var->pac_source << " = " << value << endl;
         }
     }
     else if (var->type == Variable::INT32 && data->value.type == &UA_TYPES[UA_TYPES_INT32]) {
         int32_t value = *(UA_Int32*)data->value.data;
         
-        // Extraer tabla e índice del pac_source
+        // Verificar si es variable de tabla o simple
         size_t pos = var->pac_source.find(':');
         if (pos != string::npos) {
+            // Variable de tabla con índice específico
             string table = var->pac_source.substr(0, pos);
             int index = stoi(var->pac_source.substr(pos + 1));
             success = pacClient->writeInt32TableIndex(table, index, value);
-            cout << "📝 Escribiendo " << table << "[" << index << "] = " << value << endl;
+            cout << "📝 Escribiendo tabla " << table << "[" << index << "] = " << value << endl;
+        } else {
+            // Variable simple individual
+            success = pacClient->writeSingleInt32Variable(var->pac_source, value);
+            cout << "📝 Escribiendo variable simple " << var->pac_source << " = " << value << endl;
         }
     }
     
@@ -308,21 +342,56 @@ void updateData() {
     
     while (running && server_running) {
         if (pacClient && pacClient->isConnected()) {
-            // Agrupar variables por tabla para lectura eficiente
-            map<string, vector<Variable*>> tableVars;
+            // Separar variables por tipo
+            vector<Variable*> simpleVars;      // Variables individuales (F_xxx, I_xxx)
+            map<string, vector<Variable*>> tableVars;  // Variables de tabla (TBL_xxx:índice)
             
             for (auto& var : config.variables) {
                 if (!var.has_node) continue;
                 
-                // Extraer tabla del pac_source
+                // Verificar si es variable de tabla o simple
                 size_t pos = var.pac_source.find(':');
                 if (pos != string::npos) {
+                    // Variable de tabla
                     string table = var.pac_source.substr(0, pos);
                     tableVars[table].push_back(&var);
+                } else {
+                    // Variable simple
+                    simpleVars.push_back(&var);
                 }
             }
             
-            // Actualizar cada tabla
+            // 1. Actualizar variables simples individuales
+            for (auto& var : simpleVars) {
+                if (var->type == Variable::FLOAT) {
+                    // Leer variable float simple
+                    float value = pacClient->readSingleFloatVariableByTag(var->pac_source);
+                    if (!isnan(value)) {
+                        UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char*>(var->opcua_name.c_str()));
+                        
+                        UA_Variant uaValue;
+                        UA_Variant_init(&uaValue);
+                        UA_Variant_setScalar(&uaValue, &value, &UA_TYPES[UA_TYPES_FLOAT]);
+                        
+                        UA_Server_writeValue(server, nodeId, uaValue);
+                    }
+                } else if (var->type == Variable::INT32) {
+                    // Leer variable int32 simple
+                    int32_t value = pacClient->readSingleInt32VariableByTag(var->pac_source);
+                    UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char*>(var->opcua_name.c_str()));
+                    
+                    UA_Variant uaValue;
+                    UA_Variant_init(&uaValue);
+                    UA_Variant_setScalar(&uaValue, &value, &UA_TYPES[UA_TYPES_INT32]);
+                    
+                    UA_Server_writeValue(server, nodeId, uaValue);
+                }
+                
+                // Pequeña pausa entre variables simples
+                this_thread::sleep_for(chrono::milliseconds(10));
+            }
+            
+            // 2. Actualizar variables de tabla (código existente)
             for (const auto& [tableName, vars] : tableVars) {
                 if (vars.empty()) continue;
                 

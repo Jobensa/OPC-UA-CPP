@@ -974,7 +974,44 @@ string PACControlClient::cleanASCIINumber(const string& ascii_str)
     
     DEBUG_VERBOSE("🔍 LIMPIANDO NÚMERO ASCII: '" << ascii_str << "'");
     
-    // ...existing logic...
+    // Procesar cada caracter para extraer un número válido
+    for (char c : ascii_str) {
+        // Ignorar bytes nulos y caracteres de control
+        if (c == '\0' || c == '\r' || c == '\n' || c == '\t') {
+            continue;
+        }
+        
+        // Dígitos siempre son válidos
+        if (std::isdigit(c)) {
+            result += c;
+        }
+        // Signo negativo solo al principio
+        else if (c == '-' && !negative_found && result.empty()) {
+            result += c;
+            negative_found = true;
+        }
+        // Punto decimal solo una vez
+        else if (c == '.' && !decimal_found && !exponent_found) {
+            result += c;
+            decimal_found = true;
+        }
+        // Notación científica (e/E)
+        else if ((c == 'e' || c == 'E') && !exponent_found && !result.empty()) {
+            result += c;
+            exponent_found = true;
+        }
+        // Signo en exponente
+        else if ((c == '+' || c == '-') && exponent_found && !exponent_sign_found && 
+                 (result.back() == 'e' || result.back() == 'E')) {
+            result += c;
+            exponent_sign_found = true;
+        }
+        // Espacios al final terminan el número
+        else if (c == ' ' && !result.empty()) {
+            break;
+        }
+        // Otros caracteres no válidos se ignoran
+    }
     
     DEBUG_VERBOSE("🔍 NÚMERO LIMPIO: '" << result << "'");
     
@@ -1279,7 +1316,60 @@ bool PACControlClient::validateSingleVariableIntegrity(const vector<uint8_t>& da
 
 bool PACControlClient::receiveWriteConfirmation()
 {
-    return false;
+    // PAC responde con 2 bytes (FF FF) para confirmación exitosa de escritura
+    vector<uint8_t> response(2);
+    size_t bytes_received = 0;
+    
+    auto start_time = chrono::steady_clock::now();
+    
+    while (bytes_received < 2)
+    {
+        auto current_time = chrono::steady_clock::now();
+        auto elapsed = chrono::duration_cast<chrono::milliseconds>(current_time - start_time);
+        
+        if (elapsed.count() > 1000) // Timeout 1 segundo
+        {
+            DEBUG_VERBOSE("⚠️ TIMEOUT esperando confirmación de escritura después de " << elapsed.count() << "ms");
+            DEBUG_VERBOSE("📊 Recibidos " << bytes_received << " de 2 bytes");
+            return false;
+        }
+        
+        ssize_t result = recv(sock, response.data() + bytes_received, 2 - bytes_received, MSG_DONTWAIT);
+        
+        if (result > 0)
+        {
+            bytes_received += result;
+            DEBUG_VERBOSE("📡 Confirmación: recibidos " << result << " bytes, total: " << bytes_received << "/2");
+        }
+        else if (result == 0)
+        {
+            DEBUG_VERBOSE("🔌 Conexión cerrada por el servidor durante confirmación");
+            connected = false;
+            return false;
+        }
+        else if (errno != EAGAIN && errno != EWOULDBLOCK)
+        {
+            DEBUG_VERBOSE("❌ Error recibiendo confirmación: " << strerror(errno));
+            return false;
+        }
+        
+        // Pequeña pausa para evitar uso excesivo de CPU
+        this_thread::sleep_for(chrono::milliseconds(1));
+    }
+    
+    // Verificar si la respuesta es la confirmación esperada (00 00)
+    if (bytes_received == 2 && response[0] == 0x00 && response[1] == 0x00)
+    {
+        DEBUG_VERBOSE("✅ Confirmación de escritura exitosa: 00 00");
+        return true;
+    }
+    else
+    {
+        DEBUG_VERBOSE("❌ Confirmación de escritura inválida - Esperado: 00 00, Recibido: " 
+                     << hex << setfill('0') << setw(2) << (int)response[0] << " " 
+                     << setw(2) << (int)response[1] << dec);
+        return false;
+    }
 }
 
 void PACControlClient::clearCacheForTable(const std::string &table_name)

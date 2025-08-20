@@ -1,24 +1,338 @@
-[
-    "DT_00001",
-    "DT_11001",
-    "DT_11002",
-    "DT_11003",    
-    "LT_11001",
-    "LT_11002",
-    "LT_11003",
-    "LT_11004",
-    "LT_11005",
-    "LT_11006",   
-    "PT_11001",
-    "PT_11002",
-    "PT_11003",
-    "PT_11004",
-    "PT_11005",
-    "PT_11006",    
-    "TT_11001",     
-    "TT_11002",
-    "TT_11003",
-    "TT_11004",
-    "TT_11005",
-    "TT_11006"       
-]
+{
+  "pac_config": {
+    "ip": "192.168.1.30",
+    "port": 22001
+  },
+  "server_config": {
+    "opcua_port": 4840,
+    "update_interval_ms": 2000
+  },
+  "simple_variables": [
+    {
+      "opcua_name": "F_Corrent_Vol_Batch",
+      "pac_source": "F_Corrent_Vol_Batch",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Volumen actual del batch"
+    },
+    {
+      "opcua_name": "F_CPL_11001",
+      "pac_source": "F_CPL_11001",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Compensación de presión 11001"
+    },
+    {
+      "opcua_name": "F_CPL_11002",
+      "pac_source": "F_CPL_11002",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Compensación de presión 11002"
+    },
+    {
+      "opcua_name": "F_CPL_11003",
+      "pac_source": "F_CPL_11003",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Compensación de presión 11003"
+    },
+    {
+      "opcua_name": "F_CPL_11004",
+      "pac_source": "F_CPL_11004",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Compensación de presión 11004"
+    },
+    {
+      "opcua_name": "F_CPL_11005",
+      "pac_source": "F_CPL_11005",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Compensación de presión 11005"
+    },
+    {
+      "opcua_name": "F_CPL_11006",
+      "pac_source": "F_CPL_11006",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Compensación de presión 11006"
+    },
+    {
+      "opcua_name": "F_CTL_11001",
+      "pac_source": "F_CTL_11001",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Control 11001 - Setpoint"
+    },
+    {
+      "opcua_name": "F_CTL_11002",
+      "pac_source": "F_CTL_11002",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Control 11002 - Setpoint"
+    },
+    {
+      "opcua_name": "F_CTL_11003",
+      "pac_source": "F_CTL_11003",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Control 11003 - Setpoint"
+    },
+    {
+      "opcua_name": "F_CTL_11004",
+      "pac_source": "F_CTL_11004",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Control 11004 - Setpoint"
+    },
+    {
+      "opcua_name": "F_CTL_11005",
+      "pac_source": "F_CTL_11005",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Control 11005 - Setpoint"
+    },
+    {
+      "opcua_name": "F_CTL_11006",
+      "pac_source": "F_CTL_11006",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Control 11006 - Setpoint"
+    },
+    {
+      "opcua_name": "F_Current_Flow",
+      "pac_source": "F_Current_Flow",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Flujo actual"
+    },
+    {
+      "opcua_name": "F_difStartStop",
+      "pac_source": "F_difStartStop",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Diferencia start/stop"
+    },
+    {
+      "opcua_name": "F_FQI_0001",
+      "pac_source": "F_FQI_0001",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Indicador de flujo 0001"
+    },
+    {
+    },
+    {
+      "opcua_name": "F_MF_11004",
+      "pac_source": "F_MF_11004",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Flujo másico 11004"
+    },
+    {
+      "opcua_name": "F_INPUT_VAL_BATCH",
+      "pac_source": "F_INPUT_VAL_BATCH",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Valor de entrada para batch"
+    },
+    {
+      "opcua_name": "F_MF_11001",
+      "pac_source": "F_MF_11001",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Flujo másico 11001"
+    },
+    {
+      "opcua_name": "F_MF_11002",
+      "pac_source": "F_MF_11002",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Flujo másico 11002"
+    },
+    {
+      "opcua_name": "F_MF_11003",
+      "pac_source": "F_MF_11003",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Flujo másico 11003"
+    },
+    {
+      "opcua_name": "F_MF_11004",
+      "pac_source": "F_MF_11004",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Flujo másico 11004"
+    },
+    {
+      "opcua_name": "F_MF_11005",
+      "pac_source": "F_MF_11005",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Flujo másico 11005"
+    },
+    {
+      "opcua_name": "F_MF_11006",
+      "pac_source": "F_MF_11006",
+      "type": "FLOAT",
+      "writable": true,
+      "description": "Flujo másico 11006"
+    },
+    {
+      "opcua_name": "I_ADD_BATCH",
+      "pac_source": "I_ADD_BATCH",
+      "type": "INT32",
+      "writable": true,
+      "description": "Añadir batch"
+    },
+    {
+      "opcua_name": "I_ADR_ABB_SLAVE",
+      "pac_source": "I_ADR_ABB_SLAVE",
+      "type": "INT32",
+      "writable": true,
+      "description": "Dirección esclavo ABB"
+    },
+    {
+      "opcua_name": "I_BIT_CONTROL_DATOS",
+      "pac_source": "I_BIT_CONTROL_DATOS",
+      "type": "INT32",
+      "writable": true,
+      "description": "Control de bits de datos"
+    },
+    {
+      "opcua_name": "I_clear_control",
+      "pac_source": "I_clear_control",
+      "type": "INT32",
+      "writable": true,
+      "description": "Limpiar control"
+    },
+    {
+      "opcua_name": "I_COMMAND_ABB",
+      "pac_source": "I_COMMAND_ABB",
+      "type": "INT32",
+      "writable": true,
+      "description": "Comando ABB"
+    },
+    {
+      "opcua_name": "I_COMM_STATUS",
+      "pac_source": "I_COMM_STATUS",
+      "type": "INT32",
+      "writable": true,
+      "description": "Estado de comunicación"
+    },
+    {
+      "opcua_name": "I_CONTROL_REPORTE",
+      "pac_source": "I_CONTROL_REPORTE",
+      "type": "INT32",
+      "writable": true,
+      "description": "Control de reporte"
+    },
+    {
+      "opcua_name": "I_indBatch",
+      "pac_source": "I_indBatch",
+      "type": "INT32",
+      "writable": true,
+      "description": "Indicador de batch"
+    },
+    {
+      "opcua_name": "I_indPopUP",
+      "pac_source": "I_indPopUP",
+      "type": "INT32",
+      "writable": true,
+      "description": "Indicador de popup"
+    },
+    {
+      "opcua_name": "I_ind_sum_batch",
+      "pac_source": "I_ind_sum_batch",
+      "type": "INT32",
+      "writable": true,
+      "description": "Indicador suma de batch"
+    },
+    {
+      "opcua_name": "I_indTbl",
+      "pac_source": "I_indTbl",
+      "type": "INT32",
+      "writable": true,
+      "description": "Indicador de tabla"
+    },
+    {
+      "opcua_name": "I_indTbl1",
+      "pac_source": "I_indTbl1",
+      "type": "INT32",
+      "writable": true,
+      "description": "Indicador de tabla 1"
+    },
+    {
+      "opcua_name": "I_initAuto",
+      "pac_source": "I_initAuto",
+      "type": "INT32",
+      "writable": true,
+      "description": "Inicialización automática"
+    },
+    {
+      "opcua_name": "I_maxBatch",
+      "pac_source": "I_maxBatch",
+      "type": "INT32",
+      "writable": true,
+      "description": "Máximo batch"
+    },
+    {
+      "opcua_name": "I_MINUTE_BATCH",
+      "pac_source": "I_MINUTE_BATCH",
+      "type": "INT32",
+      "writable": true,
+      "description": "Minutos de batch"
+    },
+    {
+      "opcua_name": "I_MINUTOS",
+      "pac_source": "I_MINUTOS",
+      "type": "INT32",
+      "writable": true,
+      "description": "Minutos"
+    }
+  ],
+  "tbL_tags": [
+    {
+      "name": "TT_11002",
+      "value_table": "TBL_TT_11002",
+      "alarm_table": "TBL_TT_11002",
+      "variables": ["Value", "SetHH", "SetH", "SetL", "SetLL", "SIM_Value"],
+      "alarms": ["HH", "H", "L", "LL"]
+    },
+    {
+      "name": "TT_11003", 
+      "value_table": "TBL_TT_11003",
+      "alarm_table": "TBL_TT_11003",
+      "variables": ["Value", "SetHH", "SetH", "SetL", "SetLL", "SIM_Value"],
+      "alarms": ["HH", "H", "L", "LL"]
+    },
+    {
+      "name": "TT_11004",
+      "value_table": "TBL_TT_11004", 
+      "alarm_table": "TBL_TT_11004",
+      "variables": ["Value", "SetHH", "SetH", "SetL", "SetLL", "SIM_Value"],
+      "alarms": ["HH", "H", "L", "LL"]
+    },
+    {
+      "name": "TT_11005",
+      "value_table": "TBL_TT_11005",
+      "alarm_table": "TBL_TT_11005", 
+      "variables": ["Value", "SetHH", "SetH", "SetL", "SetLL", "SIM_Value"],
+      "alarms": ["HH", "H", "L", "LL"]
+    },
+    {
+      "name": "TT_11006",
+      "value_table": "TBL_TT_11006",
+      "alarm_table": "TBL_TT_11006",
+      "variables": ["Value", "SetHH", "SetH", "SetL", "SetLL", "SIM_Value"],
+      "alarms": ["HH", "H", "L", "LL"]
+    },
+    {
+      "name": "PT_11007",
+      "value_table": "TBL_PT_11007",
+      "alarm_table": "TBL_PT_11007",
+      "variables": ["Value", "SetHH", "SetH", "SetL", "SetLL", "SIM_Value"],
+      "alarms": ["HH", "H", "L", "LL"]
+    }
+  ]
+}
