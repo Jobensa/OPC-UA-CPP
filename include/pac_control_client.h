@@ -160,6 +160,10 @@ public:
     bool writeSingleInt32Variable(const std::string& variable_name, int32_t value);
     bool writeFloatTableIndex(const std::string& table_name, int index, float value);    
     bool writeInt32TableIndex(const std::string& table_name, int index, int32_t value);
+    //void debugWriteOperation(const std::string& table_name, int index, float value);
+    // NUEVA: Función para programar verificación asíncrona (opcional)
+    void scheduleWriteVerification(const std::string& table_name, int index, float expected_value);
+    void debugWriteOperation(const std::string& table_name, int index, float value);
 
 private:
     bool sendCommand(const string& command);     
@@ -175,8 +179,8 @@ private:
     string receiveResponse();
     bool validateSingleVariableIntegrity(const vector<uint8_t>& data, 
                                         const string& tag_name);
-     bool receiveWriteConfirmation();
-     void clearCacheForTable(const std::string& table_name);    
+    bool receiveWriteConfirmation();
+    void clearCacheForTable(const std::string& table_name);    
 };
 
 #endif // PAC_CONTROL_CLIENT_H

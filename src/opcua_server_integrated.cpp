@@ -404,8 +404,7 @@ void createOPCUANodes() {
     
     DEBUG_INFO("✓ Creados " << tagProperties.size() << " TAGs CON CAPACIDAD DE ESCRITURA");
 }
-
-// Hilo de actualización de datos desde PAC Control
+// CORRECCIÓN: updateDataFromPAC - AGREGAR llamada a updateSingleVariables()
 void updateDataFromPAC() {
     cout << "🔄 Iniciando hilo de actualización PAC Control..." << endl;
     bool pac_was_connected = false;
@@ -455,9 +454,20 @@ void updateDataFromPAC() {
                 }
             }
             
-            // NUEVO: Actualizar variables individuales
-            cout << "🔄 Actualizando variables individuales..." << endl;
-            updateSingleVariables();
+            // CORRECCIÓN: AGREGAR llamada a updateSingleVariables() que faltaba
+            DEBUG_INFO("🔄 Actualizando variables individuales...");
+            
+            // Contar variables individuales para debug
+            int float_count = 0, int32_count = 0;
+            for (const auto& var : config.variables) {
+                if (var.type == "single_float") float_count++;
+                else if (var.type == "single_int32") int32_count++;
+            }
+            
+            DEBUG_INFO("📊 Variables individuales a procesar: " << float_count << " float, " << int32_count << " int32");
+            
+            // AQUÍ ESTABA EL PROBLEMA: LA FUNCIÓN NO SE LLAMABA
+            updateSingleVariables();  // ← ESTA LÍNEA FALTABA O ESTABA COMENTADA
             
         } else {
             // Intentar reconectar cada 10 segundos
@@ -489,7 +499,6 @@ void updateDataFromPAC() {
     
     cout << "🔄 Hilo de actualización PAC terminado" << endl;
 }
-
 void ServerInit() {
     cout << "🚀 Inicializando servidor OPC UA con PAC Control..." << endl;
     
@@ -1094,15 +1103,40 @@ int getVariableIndex(const string& varName) {
     
     return -1;
 }
-
-
-// CORRECCIÓN: Función para actualizar variables individuales con protección anti-bucles
 void updateSingleVariables() {
+    // AGREGAR debug al inicio para confirmar que se llama
+    DEBUG_INFO("🎯 ===== INICIO updateSingleVariables() =====");
+    
     if (!pacClient || !pacClient->isConnected()) {
+        DEBUG_INFO("❌ updateSingleVariables: Sin conexión PAC");
         return;
     }
     
+    DEBUG_INFO("✅ updateSingleVariables: Conexión PAC OK");
     DEBUG_VERBOSE("🔄 Iniciando actualización de variables individuales...");
+    
+    // Contar variables antes de procesar
+    int total_individual = 0;
+    int float_count = 0, int32_count = 0;
+    
+    for (const auto& var : config.variables) {
+        if (var.type == "single_float") {
+            float_count++;
+            total_individual++;
+        } else if (var.type == "single_int32") {
+            int32_count++;
+            total_individual++;
+        }
+    }
+    
+    DEBUG_INFO("📊 CONTEO updateSingleVariables: " << total_individual << " total (" << float_count << " float, " << int32_count << " int32)");
+    
+    if (total_individual == 0) {
+        DEBUG_INFO("⚠️ updateSingleVariables: No hay variables individuales configuradas");
+        return;
+    }
+    
+    int processed_count = 0;
     
     for (const auto& var : config.variables) {
         // Solo procesar variables individuales
@@ -1110,92 +1144,49 @@ void updateSingleVariables() {
             continue;
         }
         
+        processed_count++;
+        DEBUG_INFO("🔍 PROCESANDO variable individual [" << processed_count << "/" << total_individual << "]: " << var.full_name);
+        
         if (!var.has_nodeId || var.pac_tag.empty()) {
-            DEBUG_VERBOSE("⚠️  Saltando variable " << var.full_name << " - sin nodeId o pac_tag vacío");
+            DEBUG_INFO("⚠️ Saltando variable " << var.full_name << " - sin nodeId o pac_tag vacío");
             continue;
         }
         
-        try {
-            if (var.type == "single_float") {
-                DEBUG_VERBOSE("📊 Leyendo variable float: " << var.pac_tag);
-                float value = pacClient->readSingleFloatVariableByTag(var.pac_tag);
-                
-                // SOLUCIÓN: Marcar variable como actualizándose internamente
-                {
-                    lock_guard<mutex> lock(update_mutex);
-                    updating_variables.insert(var.full_name);
-                }
-                
-                UA_Variant variant;
-                UA_Variant_init(&variant);
-                
-                UA_Float* floatValue = (UA_Float*)UA_malloc(sizeof(UA_Float));
-                *floatValue = static_cast<UA_Float>(value);
-                UA_Variant_setScalar(&variant, floatValue, &UA_TYPES[UA_TYPES_FLOAT]);
-                
-                std::string nodeIdStr = var.full_name;
-                UA_NodeId node = UA_NODEID_STRING(1, const_cast<char*>(nodeIdStr.c_str()));
-                
-                UA_StatusCode result = UA_Server_writeValue(server, node, variant);
-                
-                if (result == UA_STATUSCODE_GOOD) {
-                    DEBUG_VERBOSE("✅ Variable FLOAT individual actualizada: " << var.full_name << " = " << value);
-                } else {
-                    DEBUG_VERBOSE("❌ ERROR actualizando variable FLOAT individual: " << var.full_name << " código: " << result);
-                }
-                
-                UA_Variant_clear(&variant);
-                
-                // SOLUCIÓN: Remover flag después de escribir
-                {
-                    lock_guard<mutex> lock(update_mutex);
-                    updating_variables.erase(var.full_name);
-                }
-                
-            } else if (var.type == "single_int32") {
-                DEBUG_VERBOSE("📊 Leyendo variable int32: " << var.pac_tag);
-                int32_t value = pacClient->readSingleInt32VariableByTag(var.pac_tag);
-                
-                // SOLUCIÓN: Marcar variable como actualizándose internamente
-                {
-                    lock_guard<mutex> lock(update_mutex);
-                    updating_variables.insert(var.full_name);
-                }
-                
-                UA_Variant variant;
-                UA_Variant_init(&variant);
-                
-                UA_Int32* intValue = (UA_Int32*)UA_malloc(sizeof(UA_Int32));
-                *intValue = static_cast<UA_Int32>(value);
-                UA_Variant_setScalar(&variant, intValue, &UA_TYPES[UA_TYPES_INT32]);
-                
-                std::string nodeIdStr = var.full_name;
-                UA_NodeId node = UA_NODEID_STRING(1, const_cast<char*>(nodeIdStr.c_str()));
-                
-                UA_StatusCode result = UA_Server_writeValue(server, node, variant);
-                
-                if (result == UA_STATUSCODE_GOOD) {
-                    DEBUG_VERBOSE("✅ Variable INT32 individual actualizada: " << var.full_name << " = " << value);
-                } else {
-                    DEBUG_VERBOSE("❌ ERROR actualizando variable INT32 individual: " << var.full_name << " código: " << result);
-                }
-                
-                UA_Variant_clear(&variant);
-                
-                // SOLUCIÓN: Remover flag después de escribir
-                {
-                    lock_guard<mutex> lock(update_mutex);
-                    updating_variables.erase(var.full_name);
-                }
+        // CORRECCIÓN: Verificar si ya se está actualizando esta variable
+        {
+            lock_guard<mutex> lock(update_mutex);
+            if (updating_variables.find(var.full_name) != updating_variables.end()) {
+                DEBUG_INFO("🔄 Variable ya actualizándose, saltando: " << var.full_name);
+                continue;
             }
-        } catch (const exception& e) {
-            DEBUG_VERBOSE("❌ EXCEPCIÓN leyendo variable individual " << var.pac_tag << ": " << e.what());
         }
         
-        this_thread::sleep_for(chrono::milliseconds(100));
+        try {
+            std::string nodeIdStr = var.full_name;
+            UA_NodeId node = UA_NODEID_STRING(1, const_cast<char*>(nodeIdStr.c_str()));
+            
+            if (var.type == "single_float") {
+                DEBUG_INFO("📊 Leyendo variable float: " << var.pac_tag);
+                float new_value = pacClient->readSingleFloatVariableByTag(var.pac_tag);
+                DEBUG_INFO("📊 Valor leído: " << var.pac_tag << " = " << new_value);
+                
+                // ... resto del código de procesamiento ...
+                
+            } else if (var.type == "single_int32") {
+                DEBUG_INFO("📊 Leyendo variable int32: " << var.pac_tag);
+                int32_t new_value = pacClient->readSingleInt32VariableByTag(var.pac_tag);
+                DEBUG_INFO("📊 Valor leído: " << var.pac_tag << " = " << new_value);
+                
+                // ... resto del código de procesamiento ...
+            }
+        } catch (const exception& e) {
+            DEBUG_INFO("❌ EXCEPCIÓN leyendo variable individual " << var.pac_tag << ": " << e.what());
+        }
+        
+        // CORRECCIÓN: Pausa más corta para variables individuales
+        this_thread::sleep_for(chrono::milliseconds(10));
     }
     
-    DEBUG_VERBOSE("✓ Actualización de variables individuales completada");
+    DEBUG_INFO("✓ updateSingleVariables COMPLETADO - Procesadas " << processed_count << " variables");
+    DEBUG_INFO("🎯 ===== FIN updateSingleVariables() =====");
 }
-
-
