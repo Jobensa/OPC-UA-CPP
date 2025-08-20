@@ -1,1192 +1,495 @@
+#include "opcua_server.h"
 #include "pac_control_client.h"
-#include "opcua_server_integrated.h"
+#include <fstream>
+#include <iostream>
+#include <thread>
+#include <chrono>
+#include <algorithm>
 
 using namespace std;
 using json = nlohmann::json;
-// Variables globales del servidor
-bool server_running = true;
+
+// ============== VARIABLES GLOBALES ==============
 UA_Server *server = nullptr;
-atomic<bool> running{true};
-mutex serverMutex;
-DynamicConfig config;
+std::atomic<bool> running{true};
+bool server_running = true;
 std::unique_ptr<PACControlClient> pacClient;
-// SOLUCIÓN: Agregar sistema de flags para evitar bucles de escritura
+Config config;
+std::mutex update_mutex;
 
-// Agregar al inicio del archivo (después de las variables globales)
-std::set<std::string> updating_variables;  // Variables siendo actualizadas desde PAC
-std::mutex update_mutex;                    // Mutex para proteger la lista
+// ============== FUNCIONES AUXILIARES ==============
 
-
-void addTagNodeWithProperties(UA_Server *server, 
-                              const std::string &tagName, 
-                              const std::vector<TagProperty> &properties) 
-{
-    cout << "🌳 CREANDO ÁRBOL OPC-UA: " << tagName << " con " << properties.size() << " propiedades" << endl;
+int getVariableIndex(const std::string& varName) {
+    // Variables estándar de instrumentos
+    if (varName == "Input") return 0;
+    if (varName == "SetHH") return 1;
+    if (varName == "SetH") return 2;
+    if (varName == "SetL") return 3;
+    if (varName == "SetLL") return 4;
+    if (varName == "SIM_Value") return 5;
+    if (varName == "PV") return 6;
+    if (varName == "Min") return 7;
+    if (varName == "Max") return 8;
+    if (varName == "Percent") return 9;
     
-    // Crear nodo objeto para el TAG
-    UA_NodeId tagNodeId;
-    UA_ObjectAttributes oAttr = UA_ObjectAttributes_default;
-    oAttr.displayName = UA_LOCALIZEDTEXT("es-ES", const_cast<char*>(tagName.c_str()));
+    // Variables de alarma
+    if (varName == "ALARM_HH") return 0;
+    if (varName == "ALARM_H") return 1;
+    if (varName == "ALARM_L") return 2;
+    if (varName == "ALARM_LL") return 3;
+    if (varName == "COLOR") return 4;
     
-    UA_StatusCode result = UA_Server_addObjectNode(
-        server,
-        UA_NODEID_STRING(1, const_cast<char*>(tagName.c_str())), // NodeId explícito para el TAG
-        UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
-        UA_NODEID_NUMERIC(0, UA_NS0ID_ORGANIZES),
-        UA_QUALIFIEDNAME(1, const_cast<char*>(tagName.c_str())),
-        UA_NODEID_NUMERIC(0, UA_NS0ID_BASEOBJECTTYPE),
-        oAttr, NULL, &tagNodeId
-    );
-    
-    if (result != UA_STATUSCODE_GOOD) {
-        cout << "❌ ERROR creando nodo TAG: " << tagName << " - código: " << result << endl;
-        return;
-    }
-    
-    cout << "✅ Nodo TAG creado: " << tagName << endl;
-
-    // Agregar cada propiedad como variable hija con NodeId explícito
-    for(const auto& prop : properties) {
-        UA_VariableAttributes vAttr = UA_VariableAttributes_default;
-        vAttr.displayName = UA_LOCALIZEDTEXT("es-ES", const_cast<char*>(prop.name.c_str()));
-        vAttr.value = prop.value;
-        vAttr.accessLevel = UA_ACCESSLEVELMASK_READ | UA_ACCESSLEVELMASK_WRITE;
-        
-        // NodeId explícito: "TagName.PropertyName"
-        std::string nodeIdStr = tagName + "." + prop.name;
-        UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char*>(nodeIdStr.c_str()));
-        
-        UA_StatusCode propResult = UA_Server_addVariableNode(
-            server,
-            nodeId, // <-- NodeId explícito
-            tagNodeId, // Padre: el nodo del TAG
-            UA_NODEID_NUMERIC(0, UA_NS0ID_HASCOMPONENT),
-            UA_QUALIFIEDNAME(1, const_cast<char*>(prop.name.c_str())),
-            UA_NODEID_NUMERIC(0, UA_NS0ID_BASEDATAVARIABLETYPE),
-            vAttr, NULL, NULL
-        );
-        
-        if (propResult != UA_STATUSCODE_GOOD) {
-            cout << "❌ ERROR creando propiedad: " << nodeIdStr << " - código: " << propResult << endl;
-        } else {
-            cout << "  ✅ Propiedad creada: " << nodeIdStr << endl;
-        }
-    }
-    
-    cout << "🎯 TAG COMPLETADO: " << tagName << " con estructura de árbol" << endl;
+    return -1;
 }
 
-// Función para establecer estado de calidad de una variable OPC UA
-void setVariableQuality(const std::string& nodeId, UA_StatusCode quality) {
-    UA_NodeId varNodeId = UA_NODEID_STRING(1, const_cast<char*>(nodeId.c_str()));
-    
-    // Leer valor actual
-    UA_Variant value;
-    UA_Variant_init(&value);
-    UA_Server_readValue(server, varNodeId, &value);
-    
-    // Crear DataValue con estado de calidad
-    UA_DataValue dataValue;
-    UA_DataValue_init(&dataValue);
-    dataValue.value = value;
-    dataValue.hasValue = true;
-    dataValue.hasStatus = true;
-    dataValue.status = quality;
-    dataValue.hasSourceTimestamp = true;
-    dataValue.sourceTimestamp = UA_DateTime_now();
-    
-    // Escribir con estado de calidad
-    UA_Server_writeDataValue(server, varNodeId, dataValue);
-    
-    // No limpiar value ya que se comparte con dataValue
-    dataValue.hasValue = false;
-    UA_DataValue_clear(&dataValue);
+bool isWritableVariable(const std::string& varName) {
+    return varName.find("SET") == 0 || 
+           varName.find("Set") == 0 || 
+           varName.find("SIM_") == 0 ||
+           varName.find("E_") == 0;
 }
 
-// Función para marcar todas las variables como "BAD" cuando no hay conexión PAC
-void markAllVariablesBad() {
-    DEBUG_INFO("⚠️  Marcando variables como BAD - Sin conexión PAC");
-    
-    for (const auto& var : config.variables) {
-        if (var.has_nodeId) {
-            setVariableQuality(var.full_name, UA_STATUSCODE_BADCOMMUNICATIONERROR);
-        }
-    }
-}
+// ============== CONFIGURACIÓN ==============
 
-// Función para cargar configuración desde archivos
-bool loadConfigFromFiles() {
-    DEBUG_INFO("📄 Cargando configuración dinámica desde pac_config copy.json...");
+bool loadConfig() {
+    cout << "📄 Cargando configuración..." << endl;
     
     try {
-        // Cargar pac_config copy.json
         ifstream configFile("pac_config copy.json");
         if (!configFile.is_open()) {
-            DEBUG_INFO("❌ Error: No se pudo abrir pac_config copy.json");
+            cout << "❌ No se pudo abrir pac_config copy.json" << endl;
             return false;
         }
         
         json configJson;
         configFile >> configJson;
-        configFile.close();
         
-        // Extraer configuración del PAC
+        // Configuración del PAC
         if (configJson.contains("pac_config")) {
-            auto& pacConfig = configJson["pac_config"];
-            config.pac_config.ip = pacConfig.value("ip", "192.168.1.30");
-            config.pac_config.port = pacConfig.value("port", 22001);
-            config.pac_config.timeout_ms = pacConfig.value("timeout_ms", 5000);
+            auto& pac = configJson["pac_config"];
+            config.pac_ip = pac.value("ip", "192.168.1.30");
+            config.pac_port = pac.value("port", 22001);
         }
         
-        // Extraer configuración del servidor OPC UA
+        // Configuración del servidor
         if (configJson.contains("server_config")) {
-            auto& serverConfig = configJson["server_config"];
-            config.opcua_port = serverConfig.value("opcua_port", 4840);
-            config.update_interval_ms = serverConfig.value("update_interval_ms", 2000);
-            DEBUG_INFO("📊 Configuración del servidor: Puerto OPC UA = " << config.opcua_port 
-                 << ", Intervalo actualización = " << config.update_interval_ms << "ms");
-        } else {
-            config.update_interval_ms = 2000;
-            DEBUG_INFO("📊 Usando configuración por defecto: Intervalo actualización = " << config.update_interval_ms << "ms");
+            auto& srv = configJson["server_config"];
+            config.opcua_port = srv.value("opcua_port", 4840);
+            config.update_interval_ms = srv.value("update_interval_ms", 2000);
         }
         
         // Limpiar configuración anterior
         config.tags.clear();
         config.variables.clear();
-        config.global_float_variables.clear();
-        config.global_int32_variables.clear();
         
-        // Extraer configuración de tags (cambiar "tags" por "tbL_tags")
+        // Cargar TAGs
         if (configJson.contains("tbL_tags")) {
-            DEBUG_INFO("📋 Procesando " << configJson["tbL_tags"].size() << " tags encontrados en JSON...");
             for (const auto& tagJson : configJson["tbL_tags"]) {
-                TagConfig tag;
+                Tag tag;
                 tag.name = tagJson.value("name", "");
-                tag.description = tagJson.value("description", "");
                 tag.value_table = tagJson.value("value_table", "");
                 tag.alarm_table = tagJson.value("alarm_table", "");
                 
-                DEBUG_INFO("📋 Procesando TAG: " << tag.name << " con tabla valores: " << tag.value_table);
-                
-                // Cargar variables de tabla
                 if (tagJson.contains("variables")) {
                     for (const auto& var : tagJson["variables"]) {
                         tag.variables.push_back(var);
                     }
-                    DEBUG_INFO("   - Variables de tabla: " << tag.variables.size());
                 }
                 
-                // Cargar alarmas
                 if (tagJson.contains("alarms")) {
                     for (const auto& alarm : tagJson["alarms"]) {
                         tag.alarms.push_back(alarm);
                     }
-                    DEBUG_INFO("   - Alarmas: " << tag.alarms.size());
-                }
-                
-                // NUEVO: Cargar variables float individuales del TAG
-                if (tagJson.contains("float_variables")) {
-                    for (const auto& var_json : tagJson["float_variables"]) {
-                        FloatVariable float_var;
-                        float_var.name = var_json["name"];
-                        float_var.pac_tag = var_json["pac_tag"];
-                        float_var.description = var_json["description"];
-                        tag.float_variables.push_back(float_var);
-                    }
-                    DEBUG_INFO("   - Variables float individuales: " << tag.float_variables.size());
-                }
-                
-                // NUEVO: Cargar variables int32 individuales del TAG
-                if (tagJson.contains("int32_variables")) {
-                    for (const auto& var_json : tagJson["int32_variables"]) {
-                        Int32Variable int32_var;
-                        int32_var.name = var_json["name"];
-                        int32_var.pac_tag = var_json["pac_tag"];
-                        int32_var.description = var_json["description"];
-                        tag.int32_variables.push_back(int32_var);
-                    }
-                    DEBUG_INFO("   - Variables int32 individuales: " << tag.int32_variables.size());
                 }
                 
                 config.tags.push_back(tag);
             }
         }
         
-        // NUEVO: Cargar variables float globales
-        if (configJson.contains("float_variables")) {
-            DEBUG_INFO("📊 Procesando " << configJson["float_variables"].size() << " variables float globales...");
-            for (const auto& var_json : configJson["float_variables"]) {
-                FloatVariable float_var;
-                float_var.name = var_json["name"];
-                float_var.pac_tag = var_json["pac_tag"];
-                float_var.description = var_json["description"];
-                config.global_float_variables.push_back(float_var);
-                DEBUG_INFO("   ✓ Variable float global: " << float_var.name << " -> " << float_var.pac_tag);
+        // Crear variables desde TAGs
+        for (const auto& tag : config.tags) {
+            // Variables de valor (float)
+            for (const auto& varName : tag.variables) {
+                Variable var;
+                var.opcua_name = tag.name + "." + varName;
+                var.tag_name = tag.name;
+                var.var_name = varName;
+                var.pac_source = tag.value_table + ":" + to_string(getVariableIndex(varName));
+                var.type = Variable::FLOAT;
+                var.writable = isWritableVariable(varName);
+                config.variables.push_back(var);
+            }
+            
+            // Variables de alarma (int32)
+            for (const auto& alarmName : tag.alarms) {
+                Variable var;
+                var.opcua_name = tag.name + "." + alarmName;
+                var.tag_name = tag.name;
+                var.var_name = alarmName;
+                var.pac_source = tag.alarm_table + ":" + to_string(getVariableIndex(alarmName));
+                var.type = Variable::INT32;
+                var.writable = false; // Las alarmas son solo lectura
+                config.variables.push_back(var);
             }
         }
         
-        // NUEVO: Cargar variables int32 globales
-        if (configJson.contains("int32_variables")) {
-            DEBUG_INFO("📊 Procesando " << configJson["int32_variables"].size() << " variables int32 globales...");
-            for (const auto& var_json : configJson["int32_variables"]) {
-                Int32Variable int32_var;
-                int32_var.name = var_json["name"];
-                int32_var.pac_tag = var_json["pac_tag"];
-                int32_var.description = var_json["description"];
-                config.global_int32_variables.push_back(int32_var);
-                DEBUG_INFO("   ✓ Variable int32 global: " << int32_var.name << " -> " << int32_var.pac_tag);
-            }
-        }
-        
-        DEBUG_INFO("✓ Configuración cargada: " << config.tags.size() << " tags");
-        DEBUG_INFO("✓ Variables float globales: " << config.global_float_variables.size());
-        DEBUG_INFO("✓ Variables int32 globales: " << config.global_int32_variables.size());
-        
+        cout << "✓ Configuración cargada: " << config.tags.size() << " tags, " 
+             << config.variables.size() << " variables" << endl;
         return true;
         
     } catch (const exception& e) {
-        DEBUG_INFO("❌ Error cargando configuración: " << e.what());
+        cout << "❌ Error cargando configuración: " << e.what() << endl;
         return false;
     }
 }
 
-void createDynamicMappings() {
-    DEBUG_INFO("🏗️  Creando mapeos dinámicos de variables...");
-    DEBUG_INFO("📊 Número de TAGs a procesar: " << config.tags.size());
-    
-    config.variables.clear();
-    
-    // Mapear variables de TAGs
-    for (const auto& tag : config.tags) {
-        DEBUG_INFO("🏷️  Procesando TAG: " << tag.name);
-        
-        // Crear variables de valores (float) - de tablas
-        for (const auto& varName : tag.variables) {
-            OPCUAVariable var;
-            var.full_name = tag.name + "." + varName;
-            var.tag_name = tag.name;
-            var.var_name = varName;
-            var.table_name = tag.value_table;
-            var.type = "float";
-            var.pac_tag = "";  // CORRECCIÓN: Inicializar explícitamente
-            var.has_nodeId = false;
-            config.variables.push_back(var);
-            DEBUG_INFO("   ✓ Variable tabla creada: " << var.full_name);
-        }
-        
-        // Crear variables de alarmas (int32) - de tablas
-        for (const auto& alarmName : tag.alarms) {
-            OPCUAVariable var;
-            var.full_name = tag.name + "." + alarmName;
-            var.tag_name = tag.name;
-            var.var_name = alarmName;
-            var.table_name = tag.alarm_table;
-            var.type = "int32";
-            var.pac_tag = "";  // CORRECCIÓN: Inicializar explícitamente
-            var.has_nodeId = false;
-            config.variables.push_back(var);
-            DEBUG_INFO("   ✓ Alarma tabla creada: " << var.full_name);
-        }
-        
-        // NUEVO: Crear variables float individuales del TAG
-        for (const auto& floatVar : tag.float_variables) {
-            OPCUAVariable var;
-            var.full_name = tag.name + "." + floatVar.name;
-            var.tag_name = tag.name;
-            var.var_name = floatVar.name;
-            var.table_name = "";  // CORRECCIÓN: Variables individuales no tienen tabla
-            var.pac_tag = floatVar.pac_tag;
-            var.type = "single_float";
-            var.has_nodeId = false;
-            config.variables.push_back(var);
-            DEBUG_INFO("   ✓ Variable float individual creada: " << var.full_name << " -> " << var.pac_tag);
-        }
-        
-        // NUEVO: Crear variables int32 individuales del TAG
-        for (const auto& int32Var : tag.int32_variables) {
-            OPCUAVariable var;
-            var.full_name = tag.name + "." + int32Var.name;
-            var.tag_name = tag.name;
-            var.var_name = int32Var.name;
-            var.table_name = "";  // CORRECCIÓN: Variables individuales no tienen tabla
-            var.pac_tag = int32Var.pac_tag;
-            var.type = "single_int32";
-            var.has_nodeId = false;
-            config.variables.push_back(var);
-            DEBUG_INFO("   ✓ Variable int32 individual creada: " << var.full_name << " -> " << var.pac_tag);
-        }
-    }
-    
-    // NUEVO: Mapear variables globales como TAG "Sistema_General"
-    if (!config.global_float_variables.empty() || !config.global_int32_variables.empty()) {
-        DEBUG_INFO("🌐 Creando TAG global: Sistema_General");
-        
-        for (const auto& floatVar : config.global_float_variables) {
-            OPCUAVariable var;
-            var.full_name = "Sistema_General." + floatVar.name;
-            var.tag_name = "Sistema_General";
-            var.var_name = floatVar.name;
-            var.table_name = "";  // CORRECCIÓN: Variables globales no tienen tabla
-            var.pac_tag = floatVar.pac_tag;
-            var.type = "single_float";
-            var.has_nodeId = false;
-            config.variables.push_back(var);
-            DEBUG_INFO("   ✓ Variable float global creada: " << var.full_name << " -> " << var.pac_tag);
-        }
-        
-        for (const auto& int32Var : config.global_int32_variables) {
-            OPCUAVariable var;
-            var.full_name = "Sistema_General." + int32Var.name;
-            var.tag_name = "Sistema_General";
-            var.var_name = int32Var.name;
-            var.table_name = "";  // CORRECCIÓN: Variables globales no tienen tabla
-            var.pac_tag = int32Var.pac_tag;
-            var.type = "single_int32";
-            var.has_nodeId = false;
-            config.variables.push_back(var);
-            DEBUG_INFO("   ✓ Variable int32 global creada: " << var.full_name << " -> " << var.pac_tag);
-        }
-    }
-    
-    DEBUG_INFO("✓ Variables mapeadas dinámicamente: " << config.variables.size());
-}
+// ============== CALLBACK DE ESCRITURA ==============
 
-
-// Actualizar función createOPCUANodes para usar la nueva función
-void createOPCUANodes() {
-    DEBUG_INFO("🏗️  Creando nodos OPC UA con capacidad de escritura...");
+static void writeCallback(UA_Server *server,
+                         const UA_NodeId *sessionId,
+                         void *sessionContext,
+                         const UA_NodeId *nodeId,
+                         void *nodeContext,
+                         const UA_NumericRange *range,
+                         const UA_DataValue *data) {
     
-    // Mapa para agrupar variables por TAG
-    std::map<std::string, std::vector<TagProperty>> tagProperties;
+    if (nodeId->identifierType != UA_NODEIDTYPE_STRING) return;
     
-    // Agrupar variables por TAG
-    for (auto& var : config.variables) {
-        TagProperty prop;
-        prop.name = var.var_name;
-        
-        // Configurar tipo de dato según el mapeo
-        UA_Variant_init(&prop.value);
-        if (var.type == "float" || var.type == "single_float") {
-            UA_Float* valorInicial = (UA_Float*)UA_malloc(sizeof(UA_Float));
-            *valorInicial = 0.0f;
-            UA_Variant_setScalar(&prop.value, valorInicial, &UA_TYPES[UA_TYPES_FLOAT]);
-        }
-        else if (var.type == "int32" || var.type == "single_int32") {
-            UA_Int32* valorInicial = (UA_Int32*)UA_malloc(sizeof(UA_Int32));
-            *valorInicial = 0;
-            UA_Variant_setScalar(&prop.value, valorInicial, &UA_TYPES[UA_TYPES_INT32]);
-        }
-        
-        tagProperties[var.tag_name].push_back(prop);
-    }
+    string nodeIdStr = string((char*)nodeId->identifier.string.data, 
+                             nodeId->identifier.string.length);
     
-    // Crear TAGs con sus propiedades usando la función CON ESCRITURA
-    for (const auto& tagPair : tagProperties) {
-        const std::string& tagName = tagPair.first;
-        const std::vector<TagProperty>& properties = tagPair.second;
-        
-        DEBUG_INFO("🏷️  Creando TAG CON ESCRITURA: " << tagName << " con " << properties.size() << " propiedades");
-        addTagNodeWithPropertiesWritable(server, tagName, properties);  // USAR NUEVA FUNCIÓN
-        
-        // Actualizar las NodeId en las variables para referencia posterior
-        for (auto& var : config.variables) {
-            if (var.tag_name == tagName) {
-                var.has_nodeId = true;
-                DEBUG_INFO("   ✓ Propiedad: " << var.var_name << " (" << var.type << ")");
-            }
-        }
-        
-        // Limpiar memoria de las propiedades después de usarlas
-        for (const auto& prop : properties) {
-            UA_Variant_clear(const_cast<UA_Variant*>(&prop.value));
-        }
-    }
+    cout << "✍️ Escritura OPC-UA: " << nodeIdStr << endl;
     
-    DEBUG_INFO("✓ Creados " << tagProperties.size() << " TAGs CON CAPACIDAD DE ESCRITURA");
-}
-// CORRECCIÓN: updateDataFromPAC - AGREGAR llamada a updateSingleVariables()
-void updateDataFromPAC() {
-    cout << "🔄 Iniciando hilo de actualización PAC Control..." << endl;
-    bool pac_was_connected = false;
-    
-    while (running && server_running) {
-        bool pac_is_connected = pacClient && pacClient->isConnected();
-        
-        // Detectar cambio de estado de conexión
-        if (pac_was_connected && !pac_is_connected) {
-            cout << "❌ Conexión PAC perdida - Marcando variables como BAD" << endl;
-            markAllVariablesBad();
-        } else if (!pac_was_connected && pac_is_connected) {
-            cout << "✅ Conexión PAC restablecida - Variables funcionando" << endl;
-        }
-        
-        pac_was_connected = pac_is_connected;
-        
-        if (pac_is_connected) {
-            // Agrupar variables por tabla para lectura eficiente (solo variables de tabla)
-            map<string, vector<int>> table_indices;
-            
-            for (const auto& var : config.variables) {
-                // Solo procesar variables de tabla (no individuales)
-                if (var.type != "float" && var.type != "int32") {
-                    continue;
-                }
-                
-                if (var.has_nodeId && !var.table_name.empty()) {
-                    int index = getVariableIndex(var.var_name);
-                    if (index >= 0) {
-                        table_indices[var.table_name].push_back(index);
-                        DEBUG_VERBOSE("🔍 DEBUG: Variable tabla " << var.full_name << " -> Tabla: " << var.table_name << " Índice: " << index << " Tipo: " << var.type);
-                    }
-                }
-            }
-            
-            // Leer cada tabla y actualizar variables correspondientes
-            for (const auto& table_pair : table_indices) {
-                if (!running || !server_running) break;
-                
-                const string& table_name = table_pair.first;
-                const vector<int>& indices = table_pair.second;
-                
-                if (!indices.empty()) {
-                    DEBUG_VERBOSE("📋 DEBUG: Procesando tabla " << table_name << " con " << indices.size() << " indices");
-                    updateTableVariables(table_name, indices);
-                }
-            }
-            
-            // CORRECCIÓN: AGREGAR llamada a updateSingleVariables() que faltaba
-            DEBUG_INFO("🔄 Actualizando variables individuales...");
-            
-            // Contar variables individuales para debug
-            int float_count = 0, int32_count = 0;
-            for (const auto& var : config.variables) {
-                if (var.type == "single_float") float_count++;
-                else if (var.type == "single_int32") int32_count++;
-            }
-            
-            DEBUG_INFO("📊 Variables individuales a procesar: " << float_count << " float, " << int32_count << " int32");
-            
-            // AQUÍ ESTABA EL PROBLEMA: LA FUNCIÓN NO SE LLAMABA
-            updateSingleVariables();  // ← ESTA LÍNEA FALTABA O ESTABA COMENTADA
-            
-        } else {
-            // Intentar reconectar cada 10 segundos
-            static auto last_reconnect_attempt = chrono::steady_clock::now();
-            auto now = chrono::steady_clock::now();
-            auto seconds_since_attempt = chrono::duration_cast<chrono::seconds>(now - last_reconnect_attempt).count();
-            
-            if (seconds_since_attempt >= 10) {
-                cout << "🔄 Intentando reconectar a PAC Control..." << endl;
-                pacClient.reset();
-                pacClient = make_unique<PACControlClient>(config.pac_config.ip, config.pac_config.port);
-                if (pacClient->connect()) {
-                    cout << "✅ Reconectado a PAC Control exitosamente" << endl;
-                } else {
-                    cout << "❌ Fallo en reconexión a PAC Control" << endl;
-                }
-                last_reconnect_attempt = now;
-            }
-            
-            // Sin conexión PAC, pausa más larga
-            this_thread::sleep_for(chrono::milliseconds(5000));
-        }
-        
-        // Esperar intervalo de actualización
-        for (int i = 0; i < config.update_interval_ms/100 && running && server_running; i++) {
-            this_thread::sleep_for(chrono::milliseconds(100));
-        }
-    }
-    
-    cout << "🔄 Hilo de actualización PAC terminado" << endl;
-}
-void ServerInit() {
-    cout << "🚀 Inicializando servidor OPC UA con PAC Control..." << endl;
-    
-    // Cargar configuración dinámica
-    if (!loadConfigFromFiles()) {
-        cout << "❌ Error cargando configuración - usando valores por defecto" << endl;
-        // Valores por defecto mínimos para que funcione
-        config.pac_config.ip = "192.168.0.30";
-        config.pac_config.port = 22001;
-        config.opcua_port = 4840;
-    }
-    
-    // Crear mapeos dinámicos de variables
-    createDynamicMappings();
-    
-    // Crear servidor OPC UA con configuración por defecto
-    server = UA_Server_new();
-    
-    if (!server) {
-        cout << "❌ Error: No se pudo crear el servidor OPC UA" << endl;
+    if (!pacClient || !pacClient->isConnected()) {
+        cout << "❌ Sin conexión PAC" << endl;
         return;
     }
     
-    cout << "✓ Servidor OPC UA creado correctamente" << endl;
-    cout << "🔧 Usando puerto por defecto 4840" << endl;
+    // Buscar variable
+    Variable* var = nullptr;
+    for (auto& v : config.variables) {
+        if (v.opcua_name == nodeIdStr) {
+            var = &v;
+            break;
+        }
+    }
     
-    // Crear nodos OPC UA inmediatamente (sin esperar conexión PAC)
-    cout << "🏗️  Creando nodos OPC UA..." << endl;
-    createOPCUANodes();
+    if (!var || !var->writable) {
+        cout << "❌ Variable no escribible: " << nodeIdStr << endl;
+        return;
+    }
     
-    // Crear cliente PAC Control
-    cout << "🔌 Inicializando cliente PAC Control..." << endl;
-    pacClient = make_unique<PACControlClient>(config.pac_config.ip, config.pac_config.port);
+    // Escribir al PAC
+    bool success = false;
+    if (var->type == Variable::FLOAT && data->value.type == &UA_TYPES[UA_TYPES_FLOAT]) {
+        float value = *(UA_Float*)data->value.data;
+        
+        // Extraer tabla e índice del pac_source
+        size_t pos = var->pac_source.find(':');
+        if (pos != string::npos) {
+            string table = var->pac_source.substr(0, pos);
+            int index = stoi(var->pac_source.substr(pos + 1));
+            success = pacClient->writeFloatTableIndex(table, index, value);
+            cout << "📝 Escribiendo " << table << "[" << index << "] = " << value << endl;
+        }
+    }
+    else if (var->type == Variable::INT32 && data->value.type == &UA_TYPES[UA_TYPES_INT32]) {
+        int32_t value = *(UA_Int32*)data->value.data;
+        
+        // Extraer tabla e índice del pac_source
+        size_t pos = var->pac_source.find(':');
+        if (pos != string::npos) {
+            string table = var->pac_source.substr(0, pos);
+            int index = stoi(var->pac_source.substr(pos + 1));
+            success = pacClient->writeInt32TableIndex(table, index, value);
+            cout << "📝 Escribiendo " << table << "[" << index << "] = " << value << endl;
+        }
+    }
     
-    // Intentar conectar al PAC (no crítico para funcionamiento)
-    cout << "🔌 Intentando conectar al PAC Control..." << endl;
-    bool pac_connected = pacClient->connect();
-    
-    if (pac_connected) {
-        cout << "✅ Conectado al PAC Control: " << config.pac_config.ip << ":" << config.pac_config.port << endl;
+    if (success) {
+        cout << "✅ Escritura exitosa" << endl;
     } else {
-        cout << "⚠️  Sin conexión PAC - Servidor funcionará en modo simulación" << endl;
-        cout << "   Variables marcadas como BAD hasta conectar PAC" << endl;
-        markAllVariablesBad();
+        cout << "❌ Error en escritura" << endl;
+    }
+}
+
+// ============== CREACIÓN DE NODOS ==============
+
+void createNodes() {
+    cout << "🏗️ Creando nodos OPC-UA..." << endl;
+    
+    // Agrupar variables por TAG
+    map<string, vector<Variable*>> tagVars;
+    for (auto& var : config.variables) {
+        tagVars[var.tag_name].push_back(&var);
     }
     
-    cout << "✅ Servidor OPC UA inicializado correctamente" << endl;
-    
-    // Mostrar resumen de variables
-    int table_vars = 0, float_vars = 0, int32_vars = 0;
-    for (const auto& var : config.variables) {
-        if (var.type == "float" || var.type == "int32") table_vars++;
-        else if (var.type == "single_float") float_vars++;
-        else if (var.type == "single_int32") int32_vars++;
+    // Crear cada TAG con sus variables
+    for (const auto& [tagName, variables] : tagVars) {
+        // Crear nodo TAG
+        UA_ObjectAttributes oAttr = UA_ObjectAttributes_default;
+        oAttr.displayName = UA_LOCALIZEDTEXT("en", const_cast<char*>(tagName.c_str()));
+        
+        UA_NodeId tagNodeId;
+        UA_StatusCode result = UA_Server_addObjectNode(
+            server,
+            UA_NODEID_STRING(1, const_cast<char*>(tagName.c_str())),
+            UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
+            UA_NODEID_NUMERIC(0, UA_NS0ID_ORGANIZES),
+            UA_QUALIFIEDNAME(1, const_cast<char*>(tagName.c_str())),
+            UA_NODEID_NUMERIC(0, UA_NS0ID_BASEOBJECTTYPE),
+            oAttr, nullptr, &tagNodeId
+        );
+        
+        if (result != UA_STATUSCODE_GOOD) {
+            cout << "❌ Error creando TAG: " << tagName << endl;
+            continue;
+        }
+        
+        // Crear variables del TAG
+        for (auto var : variables) {
+            UA_VariableAttributes vAttr = UA_VariableAttributes_default;
+            vAttr.displayName = UA_LOCALIZEDTEXT("en", const_cast<char*>(var->var_name.c_str()));
+            
+            // Configurar tipo de dato y valor inicial
+            UA_Variant value;
+            UA_Variant_init(&value);
+            
+            if (var->type == Variable::FLOAT) {
+                float initial = 0.0f;
+                UA_Variant_setScalar(&value, &initial, &UA_TYPES[UA_TYPES_FLOAT]);
+            } else if (var->type == Variable::INT32) {
+                int32_t initial = 0;
+                UA_Variant_setScalar(&value, &initial, &UA_TYPES[UA_TYPES_INT32]);
+            }
+            
+            vAttr.value = value;
+            vAttr.accessLevel = var->writable ? 
+                (UA_ACCESSLEVELMASK_READ | UA_ACCESSLEVELMASK_WRITE) : UA_ACCESSLEVELMASK_READ;
+            
+            UA_NodeId varNodeId = UA_NODEID_STRING(1, const_cast<char*>(var->opcua_name.c_str()));
+            
+            result = UA_Server_addVariableNode(
+                server,
+                varNodeId,
+                tagNodeId,
+                UA_NODEID_NUMERIC(0, UA_NS0ID_HASCOMPONENT),
+                UA_QUALIFIEDNAME(1, const_cast<char*>(var->var_name.c_str())),
+                UA_NODEID_NUMERIC(0, UA_NS0ID_BASEDATAVARIABLETYPE),
+                vAttr, nullptr, nullptr
+            );
+            
+            if (result == UA_STATUSCODE_GOOD) {
+                var->has_node = true;
+                
+                // Agregar callback de escritura si es necesario
+                if (var->writable) {
+                    UA_ValueCallback callback;
+                    callback.onRead = nullptr;
+                    callback.onWrite = writeCallback;
+                    UA_Server_setVariableNode_valueCallback(server, varNodeId, callback);
+                }
+                
+                cout << "  ✓ " << var->opcua_name << 
+                        (var->writable ? " (R/W)" : " (R)") << endl;
+            } else {
+                cout << "  ❌ Error creando variable: " << var->opcua_name << endl;
+            }
+        }
     }
-    cout << "📊 Variables de tabla: " << table_vars << endl;
-    cout << "📊 Variables float individuales: " << float_vars << endl;
-    cout << "📊 Variables int32 individuales: " << int32_vars << endl;
+    
+    cout << "✓ Nodos creados" << endl;
+}
+
+// ============== ACTUALIZACIÓN DE DATOS ==============
+
+void updateData() {
+    cout << "🔄 Iniciando actualización de datos..." << endl;
+    
+    while (running && server_running) {
+        if (pacClient && pacClient->isConnected()) {
+            // Agrupar variables por tabla para lectura eficiente
+            map<string, vector<Variable*>> tableVars;
+            
+            for (auto& var : config.variables) {
+                if (!var.has_node) continue;
+                
+                // Extraer tabla del pac_source
+                size_t pos = var.pac_source.find(':');
+                if (pos != string::npos) {
+                    string table = var.pac_source.substr(0, pos);
+                    tableVars[table].push_back(&var);
+                }
+            }
+            
+            // Actualizar cada tabla
+            for (const auto& [tableName, vars] : tableVars) {
+                if (vars.empty()) continue;
+                
+                // Determinar rango de índices
+                vector<int> indices;
+                for (const auto& var : vars) {
+                    size_t pos = var->pac_source.find(':');
+                    if (pos != string::npos) {
+                        int index = stoi(var->pac_source.substr(pos + 1));
+                        indices.push_back(index);
+                    }
+                }
+                
+                if (indices.empty()) continue;
+                
+                int minIndex = *min_element(indices.begin(), indices.end());
+                int maxIndex = *max_element(indices.begin(), indices.end());
+                
+                // Leer datos del PAC
+                bool isAlarmTable = tableName.find("TBL_DA_") == 0 || 
+                                   tableName.find("TBL_PA_") == 0 || 
+                                   tableName.find("TBL_LA_") == 0 || 
+                                   tableName.find("TBL_TA_") == 0;
+                
+                if (isAlarmTable) {
+                    // Leer tabla de alarmas (int32)
+                    vector<int32_t> values = pacClient->readInt32Table(tableName, minIndex, maxIndex);
+                    
+                    // Actualizar variables
+                    for (const auto& var : vars) {
+                        if (var->type != Variable::INT32) continue;
+                        
+                        size_t pos = var->pac_source.find(':');
+                        int index = stoi(var->pac_source.substr(pos + 1));
+                        int arrayIndex = index - minIndex;
+                        
+                        if (arrayIndex >= 0 && arrayIndex < (int)values.size()) {
+                            UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char*>(var->opcua_name.c_str()));
+                            
+                            UA_Variant value;
+                            UA_Variant_init(&value);
+                            int32_t newValue = values[arrayIndex];
+                            UA_Variant_setScalar(&value, &newValue, &UA_TYPES[UA_TYPES_INT32]);
+                            
+                            UA_Server_writeValue(server, nodeId, value);
+                        }
+                    }
+                } else {
+                    // Leer tabla de valores (float)
+                    vector<float> values = pacClient->readFloatTable(tableName, minIndex, maxIndex);
+                    
+                    // Actualizar variables
+                    for (const auto& var : vars) {
+                        if (var->type != Variable::FLOAT) continue;
+                        
+                        size_t pos = var->pac_source.find(':');
+                        int index = stoi(var->pac_source.substr(pos + 1));
+                        int arrayIndex = index - minIndex;
+                        
+                        if (arrayIndex >= 0 && arrayIndex < (int)values.size()) {
+                            UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char*>(var->opcua_name.c_str()));
+                            
+                            UA_Variant value;
+                            UA_Variant_init(&value);
+                            float newValue = values[arrayIndex];
+                            UA_Variant_setScalar(&value, &newValue, &UA_TYPES[UA_TYPES_FLOAT]);
+                            
+                            UA_Server_writeValue(server, nodeId, value);
+                        }
+                    }
+                }
+                
+                // Pequeña pausa entre tablas
+                this_thread::sleep_for(chrono::milliseconds(50));
+            }
+        } else {
+            // Sin conexión PAC - intentar reconectar cada 10 segundos
+            static auto lastReconnect = chrono::steady_clock::now();
+            auto now = chrono::steady_clock::now();
+            if (chrono::duration_cast<chrono::seconds>(now - lastReconnect).count() >= 10) {
+                cout << "🔄 Intentando reconectar PAC..." << endl;
+                pacClient.reset();
+                pacClient = make_unique<PACControlClient>(config.pac_ip, config.pac_port);
+                if (pacClient->connect()) {
+                    cout << "✅ Reconectado a PAC" << endl;
+                } else {
+                    cout << "❌ Fallo en reconexión" << endl;
+                }
+                lastReconnect = now;
+            }
+        }
+        
+        // Esperar intervalo de actualización
+        this_thread::sleep_for(chrono::milliseconds(config.update_interval_ms));
+    }
+    
+    cout << "🔄 Actualización de datos terminada" << endl;
+}
+
+// ============== FUNCIONES PRINCIPALES ==============
+
+void ServerInit() {
+    cout << "🚀 Inicializando servidor OPC UA..." << endl;
+    
+    // Cargar configuración
+    if (!loadConfig()) {
+        cout << "⚠️ Usando configuración por defecto" << endl;
+    }
+    
+    // Crear servidor OPC UA
+    server = UA_Server_new();
+    if (!server) {
+        cout << "❌ Error creando servidor OPC UA" << endl;
+        return;
+    }
+    
+    // Crear nodos
+    createNodes();
+    
+    // Crear cliente PAC
+    pacClient = make_unique<PACControlClient>(config.pac_ip, config.pac_port);
+    if (pacClient->connect()) {
+        cout << "✅ Conectado al PAC: " << config.pac_ip << ":" << config.pac_port << endl;
+    } else {
+        cout << "⚠️ Sin conexión PAC - funcionando en modo simulación" << endl;
+    }
+    
+    cout << "✅ Servidor inicializado correctamente" << endl;
+    cout << "📊 Variables configuradas: " << config.variables.size() << endl;
 }
 
 UA_StatusCode runServer() {
-    cout << "🔧 Variables mapeadas: " << config.variables.size() << endl;
-    cout << "▶️  Ejecutando servidor OPC UA..." << endl;
-    cout << "📡 URL: opc.tcp://localhost:4840" << endl;
+    cout << "▶️ Ejecutando servidor OPC UA en puerto " << config.opcua_port << endl;
+    cout << "📡 URL: opc.tcp://localhost:" << config.opcua_port << endl;
     
-    // Iniciar hilo de actualización de datos PAC
-    cout << "🔄 Iniciando hilo de actualización PAC Control..." << endl;
-    thread updateThread(updateDataFromPAC);
+    // Iniciar hilo de actualización
+    thread updateThread(updateData);
     
-    cout << "🔄 Iniciando servidor OPC UA..." << endl;
+    // Ejecutar servidor
     UA_StatusCode retval = UA_Server_run(server, &server_running);
     
-    // Esperar a que termine el hilo de actualización
+    // Esperar hilo de actualización
     if (updateThread.joinable()) {
         updateThread.join();
     }
     
-    cout << "🔄 Servidor OPC UA detenido - código: " << retval << endl;
-    
-    // Limpiar servidor
-    if (server) {
-        UA_Server_delete(server);
-        server = nullptr;
-    }
-    
-    cout << "✓ Servidor detenido correctamente" << endl;
-    
     return retval;
 }
 
-// Función para verificar estado de conexión PAC desde main
 bool getPACConnectionStatus() {
     return pacClient && pacClient->isConnected();
 }
 
-// Función de limpieza y salida
 void cleanupAndExit() {
-    cout << "\n🧹 LIMPIEZA Y TERMINACIÓN:" << endl;
+    cout << "\n🧹 Limpieza y terminación..." << endl;
     
-    // Detener threads y limpiar recursos
     running = false;
     server_running = false;
     
-    // Limpiar cliente PAC
     if (pacClient) {
-        cout << "• Desconectando cliente PAC..." << endl;
         pacClient.reset();
     }
     
-    // Limpiar servidor OPC UA
     if (server) {
-        cout << "• Liberando recursos del servidor OPC UA..." << endl;
         UA_Server_delete(server);
         server = nullptr;
     }
     
     cout << "✓ Limpieza completada" << endl;
-    cout << "👋 ¡Hasta luego!" << endl;
-}
-
-// Función auxiliar para actualizar variables de una tabla
-void updateTableVariables(const string& table_name, const vector<int>& indices) {
-    if (indices.empty()) return;
-    
-    int min_index = *min_element(indices.begin(), indices.end());
-    int max_index = *max_element(indices.begin(), indices.end());
-    
-    // Determinar si es tabla de floats o int32 basado en el nombre
-    bool is_alarm_table = (table_name.find("TBL_DA_") == 0) || 
-                         (table_name.find("TBL_PA_") == 0) || 
-                         (table_name.find("TBL_LA_") == 0) || 
-                         (table_name.find("TBL_TA_") == 0);
-    
-    cout << "🔍 DEBUG: updateTableVariables - Tabla: " << table_name << " es_alarma: " << (is_alarm_table ? "SI" : "NO") << " min_idx: " << min_index << " max_idx: " << max_index << endl;
-    
-    if (is_alarm_table) {
-        // Leer tabla de alarmas (int32)
-        cout << "📊 DEBUG: Leyendo tabla int32: " << table_name << endl;
-        vector<int32_t> values = pacClient->readInt32Table(table_name, min_index, max_index);
-        if (!values.empty()) {
-            cout << "🎯 DATOS LEÍDOS de " << table_name << ": ";
-            for (size_t i = 0; i < values.size(); i++) {
-                cout << "[" << (min_index + i) << "]=" << values[i] << " ";
-            }
-            cout << endl;
-            updateInt32Variables(table_name, values, min_index);
-        } else {
-            cout << "⚠️  DEBUG: Tabla int32 vacía: " << table_name << endl;
-        }
-    } else {
-        // Leer tabla de valores (float)
-        cout << "📊 DEBUG: Leyendo tabla float: " << table_name << endl;
-        vector<float> values = pacClient->readFloatTable(table_name, min_index, max_index);
-        if (!values.empty()) {
-            cout << "🎯 DATOS LEÍDOS de " << table_name << ": ";
-            for (size_t i = 0; i < values.size(); i++) {
-                cout << "[" << (min_index + i) << "]=" << values[i] << " ";
-            }
-            cout << endl;
-            updateFloatVariables(table_name, values, min_index);
-        } else {
-            cout << "⚠️  DEBUG: Tabla float vacía: " << table_name << endl;
-        }
-        
-        this_thread::sleep_for(chrono::milliseconds(50));
-    }
-}
-
-// CORRECCIÓN: Función para actualizar variables float con protección anti-bucles
-void updateFloatVariables(const string& table_name, const vector<float>& values, int min_index) {
-    DEBUG_VERBOSE("🔧 updateFloatVariables: tabla=" << table_name << " values.size()=" << values.size() << " min_index=" << min_index);
-    
-    for (auto& var : config.variables) {
-        if (var.has_nodeId && var.table_name == table_name && var.type == "float") {
-            int var_index = getVariableIndex(var.var_name);
-            if (var_index >= 0) {
-                int array_index = var_index - min_index;
-                if (array_index >= 0 && array_index < (int)values.size()) {
-                    float new_value = values[array_index];
-                    
-                    DEBUG_VERBOSE("🔍 MAPEO: " << var.full_name << " <- tabla[" << array_index << "] = " << new_value);
-                    
-                    std::string nodeIdString = var.tag_name + "." + var.var_name;
-                    UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char*>(nodeIdString.c_str()));
-                    
-                    // Leer valor actual para comparar
-                    UA_Variant current_value;
-                    UA_Variant_init(&current_value);
-                    UA_StatusCode read_result = UA_Server_readValue(server, nodeId, &current_value);
-                    
-                    bool value_changed = true;
-                    if (read_result == UA_STATUSCODE_GOOD && current_value.type == &UA_TYPES[UA_TYPES_FLOAT]) {
-                        float current_float = *(UA_Float*)current_value.data;
-                        value_changed = fabs(current_float - new_value) > 0.001f;
-                    }
-                    
-                    UA_Variant_clear(&current_value);
-                    
-                    if (value_changed) {
-                        // SOLUCIÓN: Marcar variable como actualizándose internamente
-                        {
-                            lock_guard<mutex> lock(update_mutex);
-                            updating_variables.insert(var.full_name);
-                        }
-                        
-                        // Crear valor con memoria dinámica
-                        UA_Variant value;
-                        UA_Variant_init(&value);
-                        UA_Float* floatPtr = (UA_Float*)UA_malloc(sizeof(UA_Float));
-                        *floatPtr = new_value;
-                        UA_Variant_setScalar(&value, floatPtr, &UA_TYPES[UA_TYPES_FLOAT]);
-                        
-                        UA_StatusCode write_result = UA_Server_writeValue(server, nodeId, value);
-                        
-                        if (write_result == UA_STATUSCODE_GOOD) {
-                            DEBUG_VERBOSE("🔄 ACTUALIZACIÓN PAC: " << var.full_name << " = " << new_value);
-                        } else {
-                            DEBUG_VERBOSE("❌ ERROR ESCRIBIENDO: " << var.full_name << " código: " << write_result);
-                        }
-                        
-                        UA_Variant_clear(&value);
-                        
-                        // SOLUCIÓN: Remover flag después de escribir
-                        {
-                            lock_guard<mutex> lock(update_mutex);
-                            updating_variables.erase(var.full_name);
-                        }
-                    } else {
-                        DEBUG_VERBOSE("✅ SIN CAMBIO: " << var.full_name << " = " << new_value);
-                    }
-                }
-            }
-        }
-    }
-}
-
-
-
-// CORRECCIÓN: Función para actualizar variables int32 con protección anti-bucles
-void updateInt32Variables(const string& table_name, const vector<int32_t>& values, int min_index) {
-    for (auto& var : config.variables) {
-        if (var.has_nodeId && var.table_name == table_name && var.type == "int32") {
-            int var_index = getVariableIndex(var.var_name);
-            if (var_index >= 0) {
-                int array_index = var_index - min_index;
-                if (array_index >= 0 && array_index < (int)values.size()) {
-                    int32_t new_value = values[array_index];
-                    
-                    std::string nodeIdString = var.tag_name + "." + var.var_name;
-                    UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char*>(nodeIdString.c_str()));
-                    
-                    UA_Variant current_value;
-                    UA_Variant_init(&current_value);
-                    UA_StatusCode read_result = UA_Server_readValue(server, nodeId, &current_value);
-                    
-                    bool value_changed = true;
-                    if (read_result == UA_STATUSCODE_GOOD && current_value.type == &UA_TYPES[UA_TYPES_INT32]) {
-                        int32_t current_int = *(UA_Int32*)current_value.data;
-                        value_changed = (current_int != new_value);
-                    }
-                    
-                    UA_Variant_clear(&current_value);
-                    
-                    if (value_changed) {
-                        // SOLUCIÓN: Marcar variable como actualizándose internamente
-                        {
-                            lock_guard<mutex> lock(update_mutex);
-                            updating_variables.insert(var.full_name);
-                        }
-                        
-                        UA_Variant value;
-                        UA_Variant_init(&value);
-                        UA_Int32* intPtr = (UA_Int32*)UA_malloc(sizeof(UA_Int32));
-                        *intPtr = new_value;
-                        UA_Variant_setScalar(&value, intPtr, &UA_TYPES[UA_TYPES_INT32]);
-                        
-                        UA_Server_writeValue(server, nodeId, value);
-                        DEBUG_VERBOSE("🔄 ACTUALIZACIÓN PAC: " << var.full_name << " = " << new_value);
-                        
-                        UA_Variant_clear(&value);
-                        
-                        // SOLUCIÓN: Remover flag después de escribir
-                        {
-                            lock_guard<mutex> lock(update_mutex);
-                            updating_variables.erase(var.full_name);
-                        }
-                    } else {
-                        DEBUG_VERBOSE("✅ SIN CAMBIO: " << var.full_name << " = " << new_value);
-                    }
-                }
-            }
-        }
-    }
-}
-
-
-
-// CORRECCIÓN: Callback de escritura con detección de bucles
-static void writeValueCallback(UA_Server *server,
-                              const UA_NodeId *sessionId,
-                              void *sessionContext,
-                              const UA_NodeId *nodeId,
-                              void *nodeContext,
-                              const UA_NumericRange *range,
-                              const UA_DataValue *data) {
-    
-    // Obtener el NodeId como string
-    if (nodeId->identifierType != UA_NODEIDTYPE_STRING) {
-        DEBUG_VERBOSE("❌ NodeId no es string, ignorando escritura");
-        return;
-    }
-    
-    string nodeIdStr = string((char*)nodeId->identifier.string.data, nodeId->identifier.string.length);
-    
-    // SOLUCIÓN: Verificar si esta variable está siendo actualizada desde PAC
-    {
-        lock_guard<mutex> lock(update_mutex);
-        if (updating_variables.find(nodeIdStr) != updating_variables.end()) {
-            DEBUG_VERBOSE("🔄 ACTUALIZACIÓN INTERNA desde PAC: " << nodeIdStr << " - Ignorando callback");
-            return;  // Es una actualización interna, no procesar
-        }
-    }
-    
-    DEBUG_INFO("✍️  ESCRITURA EXTERNA desde cliente OPC UA: " << nodeIdStr);
-    
-    // Verificar que tenemos conexión PAC
-    if (!pacClient || !pacClient->isConnected()) {
-        DEBUG_INFO("❌ Sin conexión PAC - Rechazando escritura");
-        return;
-    }
-    
-    // Buscar la variable en nuestra configuración
-    OPCUAVariable* target_var = nullptr;
-    for (auto& var : config.variables) {
-        if (var.full_name == nodeIdStr && var.has_nodeId) {
-            target_var = &var;
-            break;
-        }
-    }
-    
-    if (!target_var) {
-        DEBUG_INFO("❌ Variable no encontrada: " << nodeIdStr);
-        return;
-    }
-    
-    // Verificar que solo variables SET_xxx y E_xxx son escribibles para tablas
-    bool is_writable = false;
-    
-    if (target_var->type == "single_float" || target_var->type == "single_int32") {
-        // Variables individuales siempre escribibles
-        is_writable = true;
-        DEBUG_INFO("📝 Variable individual escribible: " << nodeIdStr);
-    } else if (target_var->type == "float" || target_var->type == "int32") {
-        // Variables de tabla: solo SET_xxx y E_xxx son escribibles
-        if (target_var->var_name.find("SET_") == 0 || 
-            target_var->var_name.find("E_") == 0 ||
-            target_var->var_name.find("SetHH") == 0 ||
-            target_var->var_name.find("SetH") == 0 ||
-            target_var->var_name.find("SetL") == 0 ||
-            target_var->var_name.find("SetLL") == 0 ||
-            target_var->var_name.find("SIM_Value") == 0) {
-            is_writable = true;
-            DEBUG_INFO("📝 Variable de tabla escribible: " << nodeIdStr);
-        } else {
-            DEBUG_INFO("🔒 Variable de tabla SOLO LECTURA: " << nodeIdStr);
-            return;
-        }
-    }
-    
-    if (!is_writable) {
-        DEBUG_INFO("🔒 Variable no escribible: " << nodeIdStr);
-        return;
-    }
-    
-    // SOLUCIÓN: Marcar que estamos procesando una escritura externa
-    {
-        lock_guard<mutex> lock(update_mutex);
-        updating_variables.insert(nodeIdStr);
-    }
-    
-    // Procesar escritura según el tipo
-    bool write_success = false;
-    
-    try {
-        if (target_var->type == "single_float") {
-            // Variable float individual
-            if (data->value.type == &UA_TYPES[UA_TYPES_FLOAT]) {
-                float value = *(UA_Float*)data->value.data;
-                DEBUG_INFO("🔥 Escribiendo variable float individual: " << target_var->pac_tag << " = " << value);
-                write_success = pacClient->writeSingleFloatVariable(target_var->pac_tag, value);
-            } else {
-                DEBUG_INFO("❌ Tipo de dato incorrecto para variable float individual");
-            }
-            
-        } else if (target_var->type == "single_int32") {
-            // Variable int32 individual
-            if (data->value.type == &UA_TYPES[UA_TYPES_INT32]) {
-                int32_t value = *(UA_Int32*)data->value.data;
-                DEBUG_INFO("🔥 Escribiendo variable int32 individual: " << target_var->pac_tag << " = " << value);
-                write_success = pacClient->writeSingleInt32Variable(target_var->pac_tag, value);
-            } else {
-                DEBUG_INFO("❌ Tipo de dato incorrecto para variable int32 individual");
-            }
-            
-        } else if (target_var->type == "float") {
-            // Variable float de tabla
-            if (data->value.type == &UA_TYPES[UA_TYPES_FLOAT]) {
-                float value = *(UA_Float*)data->value.data;
-                int index = getVariableIndex(target_var->var_name);
-                if (index >= 0) {
-                    DEBUG_INFO("🔥 Escribiendo variable float de tabla: " << target_var->table_name 
-                         << "[" << index << "] = " << value);
-                    write_success = pacClient->writeFloatTableIndex(target_var->table_name, index, value);
-                } else {
-                    DEBUG_INFO("❌ Índice de variable inválido: " << target_var->var_name);
-                }
-            } else {
-                DEBUG_INFO("❌ Tipo de dato incorrecto para variable float de tabla");
-            }
-            
-        } else if (target_var->type == "int32") {
-            // Variable int32 de tabla
-            if (data->value.type == &UA_TYPES[UA_TYPES_INT32]) {
-                int32_t value = *(UA_Int32*)data->value.data;
-                int index = getVariableIndex(target_var->var_name);
-                if (index >= 0) {
-                    DEBUG_INFO("🔥 Escribiendo variable int32 de tabla: " << target_var->table_name 
-                         << "[" << index << "] = " << value);
-                    write_success = pacClient->writeInt32TableIndex(target_var->table_name, index, value);
-                } else {
-                    DEBUG_INFO("❌ Índice de variable inválido: " << target_var->var_name);
-                }
-            } else {
-                DEBUG_INFO("❌ Tipo de dato incorrecto para variable int32 de tabla");
-            }
-        }
-        
-        if (write_success) {
-            DEBUG_INFO("✅ Escritura exitosa en PAC: " << nodeIdStr);
-            // NOTA: NO actualizar el valor OPC UA aquí, ya que la próxima lectura lo traerá
-        } else {
-            DEBUG_INFO("❌ Error escribiendo en PAC: " << nodeIdStr);
-        }
-        
-    } catch (const exception& e) {
-        DEBUG_INFO("❌ Excepción durante escritura: " << e.what());
-    }
-    
-    // SOLUCIÓN: Remover el flag después de procesar
-    {
-        lock_guard<mutex> lock(update_mutex);
-        updating_variables.erase(nodeIdStr);
-    }
-}
-
-
-// Función mejorada para crear nodos con callback de escritura
-void addTagNodeWithPropertiesWritable(UA_Server *server, 
-                                     const std::string &tagName, 
-                                     const std::vector<TagProperty> &properties) 
-{
-    DEBUG_INFO("🌳 CREANDO ÁRBOL OPC-UA CON ESCRITURA: " << tagName << " con " << properties.size() << " propiedades");
-    
-    // Crear nodo objeto para el TAG
-    UA_NodeId tagNodeId;
-    UA_ObjectAttributes oAttr = UA_ObjectAttributes_default;
-    oAttr.displayName = UA_LOCALIZEDTEXT("es-ES", const_cast<char*>(tagName.c_str()));
-    
-    UA_StatusCode result = UA_Server_addObjectNode(
-        server,
-        UA_NODEID_STRING(1, const_cast<char*>(tagName.c_str())),
-        UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
-        UA_NODEID_NUMERIC(0, UA_NS0ID_ORGANIZES),
-        UA_QUALIFIEDNAME(1, const_cast<char*>(tagName.c_str())),
-        UA_NODEID_NUMERIC(0, UA_NS0ID_BASEOBJECTTYPE),
-        oAttr, NULL, &tagNodeId
-    );
-    
-    if (result != UA_STATUSCODE_GOOD) {
-        DEBUG_INFO("❌ ERROR creando nodo TAG: " << tagName << " - código: " << result);
-        return;
-    }
-    
-    DEBUG_INFO("✅ Nodo TAG creado: " << tagName);
-
-    // Agregar cada propiedad como variable hija con callback de escritura
-    for(const auto& prop : properties) {
-        UA_VariableAttributes vAttr = UA_VariableAttributes_default;
-        vAttr.displayName = UA_LOCALIZEDTEXT("es-ES", const_cast<char*>(prop.name.c_str()));
-        vAttr.value = prop.value;
-        
-        // Determinar nivel de acceso basado en el nombre de la variable
-        bool is_writable = false;
-        std::string nodeIdStr = tagName + "." + prop.name;
-        
-        // Buscar la variable en configuración para determinar si es escribible
-        for (const auto& var : config.variables) {
-            if (var.full_name == nodeIdStr) {
-                if (var.type == "single_float" || var.type == "single_int32") {
-                    // Variables individuales siempre escribibles
-                    is_writable = true;
-                } else if (var.type == "float" || var.type == "int32") {
-                    // Variables de tabla: solo SET_xxx y E_xxx son escribibles
-                    if (var.var_name.find("SET_") == 0 || 
-                        var.var_name.find("E_") == 0 ||
-                        var.var_name.find("SetHH") == 0 ||
-                        var.var_name.find("SetH") == 0 ||
-                        var.var_name.find("SetL") == 0 ||
-                        var.var_name.find("SetLL") == 0 ||
-                        var.var_name.find("SIM_Value") == 0) {
-                        is_writable = true;
-                    }
-                }
-                break;
-            }
-        }
-        
-        if (is_writable) {
-            vAttr.accessLevel = UA_ACCESSLEVELMASK_READ | UA_ACCESSLEVELMASK_WRITE;
-            DEBUG_INFO("  📝 Variable ESCRIBIBLE: " << nodeIdStr);
-        } else {
-            vAttr.accessLevel = UA_ACCESSLEVELMASK_READ;
-            DEBUG_INFO("  👁️  Variable SOLO LECTURA: " << nodeIdStr);
-        }
-        
-        // NodeId explícito: "TagName.PropertyName"
-        UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char*>(nodeIdStr.c_str()));
-        
-        // Crear atributos de nodo de variable
-        UA_VariableTypeAttributes vtAttr = UA_VariableTypeAttributes_default;
-        
-        UA_StatusCode propResult = UA_Server_addVariableNode(
-            server,
-            nodeId,
-            tagNodeId,
-            UA_NODEID_NUMERIC(0, UA_NS0ID_HASCOMPONENT),
-            UA_QUALIFIEDNAME(1, const_cast<char*>(prop.name.c_str())),
-            UA_NODEID_NUMERIC(0, UA_NS0ID_BASEDATAVARIABLETYPE),
-            vAttr, NULL, NULL
-        );
-        
-        if (propResult == UA_STATUSCODE_GOOD) {
-            // Agregar callback de escritura solo si es escribible
-            if (is_writable) {
-                UA_ValueCallback callback;
-                callback.onRead = NULL;
-                callback.onWrite = writeValueCallback;
-                UA_Server_setVariableNode_valueCallback(server, nodeId, callback);
-                DEBUG_INFO("  ✅ Variable con CALLBACK de escritura: " << nodeIdStr);
-            } else {
-                DEBUG_INFO("  ✅ Variable SOLO LECTURA: " << nodeIdStr);
-            }
-        } else {
-            DEBUG_INFO("❌ ERROR creando propiedad: " << nodeIdStr << " - código: " << propResult);
-        }
-    }
-    
-    DEBUG_INFO("🎯 TAG COMPLETADO CON ESCRITURA: " << tagName);
-}
-
-// Función auxiliar para obtener índice de variable en tabla TBL_ANALOG_TAG
-int getVariableIndex(const string& varName) {
-    // Variables de lectura y escritura
-    if (varName == "Input") return 0;        // Input del sensor (solo lectura)
-    if (varName == "SetHH") return 1;        // Setpoint alarma muy alta (ESCRIBIBLE)
-    if (varName == "SetH") return 2;         // Setpoint alarma alta (ESCRIBIBLE)
-    if (varName == "SetL") return 3;         // Setpoint alarma baja (ESCRIBIBLE)
-    if (varName == "SetLL") return 4;        // Setpoint alarma muy baja (ESCRIBIBLE)
-    if (varName == "SIM_Value") return 5;    // Valor de simulación (ESCRIBIBLE)
-    if (varName == "PV") return 6;           // Process Value (solo lectura)
-    if (varName == "Min") return 7;          // Valor mínimo (solo lectura)
-    if (varName == "Max") return 8;          // Valor máximo (solo lectura)
-    if (varName == "Percent") return 9;      // Porcentaje del PV (solo lectura)
-    
-    // Variables de alarma (tabla int32)
-    if (varName == "ALARM_HH") return 0;     // (solo lectura)
-    if (varName == "ALARM_H") return 1;      // (solo lectura)
-    if (varName == "ALARM_L") return 2;      // (solo lectura)
-    if (varName == "ALARM_LL") return 3;     // (solo lectura)
-    if (varName == "COLOR") return 4;        // (solo lectura)
-    
-    // Variables adicionales escribibles con prefijo SET_ o E_
-    if (varName.find("SET_") == 0) {
-        // Parsear índice desde SET_xxx (ej: SET_0 -> 0)
-        string index_str = varName.substr(4);
-        try {
-            return std::stoi(index_str);
-        } catch (...) {
-            return -1;
-        }
-    }
-    
-    if (varName.find("E_") == 0) {
-        // Variables de habilitación (ej: E_0 -> 0)
-        string index_str = varName.substr(2);
-        try {
-            return std::stoi(index_str);
-        } catch (...) {
-            return -1;
-        }
-    }
-    
-    return -1;
-}
-void updateSingleVariables() {
-    // AGREGAR debug al inicio para confirmar que se llama
-    DEBUG_INFO("🎯 ===== INICIO updateSingleVariables() =====");
-    
-    if (!pacClient || !pacClient->isConnected()) {
-        DEBUG_INFO("❌ updateSingleVariables: Sin conexión PAC");
-        return;
-    }
-    
-    DEBUG_INFO("✅ updateSingleVariables: Conexión PAC OK");
-    DEBUG_VERBOSE("🔄 Iniciando actualización de variables individuales...");
-    
-    // Contar variables antes de procesar
-    int total_individual = 0;
-    int float_count = 0, int32_count = 0;
-    
-    for (const auto& var : config.variables) {
-        if (var.type == "single_float") {
-            float_count++;
-            total_individual++;
-        } else if (var.type == "single_int32") {
-            int32_count++;
-            total_individual++;
-        }
-    }
-    
-    DEBUG_INFO("📊 CONTEO updateSingleVariables: " << total_individual << " total (" << float_count << " float, " << int32_count << " int32)");
-    
-    if (total_individual == 0) {
-        DEBUG_INFO("⚠️ updateSingleVariables: No hay variables individuales configuradas");
-        return;
-    }
-    
-    int processed_count = 0;
-    
-    for (const auto& var : config.variables) {
-        // Solo procesar variables individuales
-        if (var.type != "single_float" && var.type != "single_int32") {
-            continue;
-        }
-        
-        processed_count++;
-        DEBUG_INFO("🔍 PROCESANDO variable individual [" << processed_count << "/" << total_individual << "]: " << var.full_name);
-        
-        if (!var.has_nodeId || var.pac_tag.empty()) {
-            DEBUG_INFO("⚠️ Saltando variable " << var.full_name << " - sin nodeId o pac_tag vacío");
-            continue;
-        }
-        
-        // CORRECCIÓN: Verificar si ya se está actualizando esta variable
-        {
-            lock_guard<mutex> lock(update_mutex);
-            if (updating_variables.find(var.full_name) != updating_variables.end()) {
-                DEBUG_INFO("🔄 Variable ya actualizándose, saltando: " << var.full_name);
-                continue;
-            }
-        }
-        
-        try {
-            std::string nodeIdStr = var.full_name;
-            UA_NodeId node = UA_NODEID_STRING(1, const_cast<char*>(nodeIdStr.c_str()));
-            
-            if (var.type == "single_float") {
-                DEBUG_INFO("📊 Leyendo variable float: " << var.pac_tag);
-                float new_value = pacClient->readSingleFloatVariableByTag(var.pac_tag);
-                DEBUG_INFO("📊 Valor leído: " << var.pac_tag << " = " << new_value);
-                
-                // ... resto del código de procesamiento ...
-                
-            } else if (var.type == "single_int32") {
-                DEBUG_INFO("📊 Leyendo variable int32: " << var.pac_tag);
-                int32_t new_value = pacClient->readSingleInt32VariableByTag(var.pac_tag);
-                DEBUG_INFO("📊 Valor leído: " << var.pac_tag << " = " << new_value);
-                
-                // ... resto del código de procesamiento ...
-            }
-        } catch (const exception& e) {
-            DEBUG_INFO("❌ EXCEPCIÓN leyendo variable individual " << var.pac_tag << ": " << e.what());
-        }
-        
-        // CORRECCIÓN: Pausa más corta para variables individuales
-        this_thread::sleep_for(chrono::milliseconds(10));
-    }
-    
-    DEBUG_INFO("✓ updateSingleVariables COMPLETADO - Procesadas " << processed_count << " variables");
-    DEBUG_INFO("🎯 ===== FIN updateSingleVariables() =====");
 }
