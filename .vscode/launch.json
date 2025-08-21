@@ -6,7 +6,7 @@
       "name": "(gdb) Adjuntar",
       "type": "cppdbg",
       "request": "attach",
-      "program": "Escriba el nombre del programa; por ejemplo, ${workspaceFolder}/a.out.",
+      "program": "${workspaceFolder}/build/opcua_server_production",
       "MIMode": "gdb",
       "setupCommands": [
           {
@@ -25,7 +25,7 @@
       "name": "(gdb) Iniciar",
       "type": "cppdbg",
       "request": "launch",
-      "program": "Escriba el nombre del programa; por ejemplo, ${workspaceFolder}/a.out.",
+      "program": "${workspaceFolder}/build/opcua_server_production",
       "args": [],
       "stopAtEntry": false,
       "cwd": "${fileDirname}",
@@ -45,24 +45,6 @@
           }
       ]
     },
-    {
-      "name": "Debug Paso a Paso",
-      "type": "cppdbg",
-      "request": "launch",
-      "args": [],
-      "stopAtEntry": false,
-      "externalConsole": false,
-      "cwd": "/media/jose/Datos/Data/Proyectos/PetroSantander/SCADA/opcua-optommp/",
-      "program": "/media/jose/Datos/Data/Proyectos/PetroSantander/SCADA/opcua-optommp/build/opcua_telemetria_server",
-      "MIMode": "gdb",
-      "miDebuggerPath": "gdb",
-      "setupCommands": [
-        {
-          "description": "Enable pretty-printing for gdb",
-          "text": "-enable-pretty-printing",
-          "ignoreFailures": true
-        }
-      ]
-    }
+    
   ]
 }

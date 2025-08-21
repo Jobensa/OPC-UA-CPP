@@ -5,7 +5,8 @@
   },
   "server_config": {
     "opcua_port": 4840,
-    "update_interval_ms": 2000
+    "update_interval_ms": 2000,
+    "server_name": "PAC Control SCADA Server"
   },
   "simple_variables": [
     {
@@ -120,8 +121,7 @@
       "writable": true,
       "description": "Indicador de flujo 0001"
     },
-    {
-    },
+   
     {
       "opcua_name": "F_MF_11004",
       "pac_source": "F_MF_11004",
@@ -157,13 +157,7 @@
       "writable": true,
       "description": "Flujo másico 11003"
     },
-    {
-      "opcua_name": "F_MF_11004",
-      "pac_source": "F_MF_11004",
-      "type": "FLOAT",
-      "writable": true,
-      "description": "Flujo másico 11004"
-    },
+   
     {
       "opcua_name": "F_MF_11005",
       "pac_source": "F_MF_11005",
@@ -390,27 +384,7 @@
       "variables": ["Input", "SetHH", "SetH", "SetL", "SetLL", "SIM_Value", "PV", "min", "max", "percent"],
       "alarms": ["HH", "H", "L", "LL", "Color"]
     },
-    {
-      "name": "DT_11004",
-      "value_table": "TBL_DT_11004",
-      "alarm_table": "TBL_DA_11004",
-      "variables": ["Input", "SetHH", "SetH", "SetL", "SetLL", "SIM_Value", "PV", "min", "max", "percent"],
-      "alarms": ["HH", "H", "L", "LL", "Color"]
-    },
-    {
-      "name": "DT_11005",
-      "value_table": "TBL_DT_11005",
-      "alarm_table": "TBL_DA_11005",
-      "variables": ["Input", "SetHH", "SetH", "SetL", "SetLL", "SIM_Value", "PV", "min", "max", "percent"],
-      "alarms": ["HH", "H", "L", "LL", "Color"]
-    },
-    {
-      "name": "DT_11006",
-      "value_table": "TBL_DT_11006",
-      "alarm_table": "TBL_DA_11006",
-      "variables": ["Input", "SetHH", "SetH", "SetL", "SetLL", "SIM_Value", "PV", "min", "max", "percent"],
-      "alarms": ["HH", "H", "L", "LL", "Color"]
-    },
+    
     {
       "name": "PT_11001",
       "value_table": "TBL_PT_11001",

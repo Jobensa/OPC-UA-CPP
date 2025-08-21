@@ -139,7 +139,7 @@ vector<float> PACControlClient::readFloatTable(const string &table_name,
     vector<uint8_t> raw_data = receiveData(expected_bytes);
     if (raw_data.empty())
     {
-        cerr << "Error recibiendo datos binarios de tabla" << endl;
+        cerr << "Error recibiendo datos binarios de tabla: " << table_name << endl;
         return {};
     }
     
@@ -302,14 +302,14 @@ bool PACControlClient::writeFloatVariable(const string &table_name, int index, f
     cmd << index << " " << table_name << " " << value << " TWrite\r";
 
     string command = cmd.str();
-    cout << "Escribiendo float: " << command << endl;
+    //cout << "Escribiendo float: " << command << endl;
 
     bool result = sendCommand(command);
     if (result)
     {
         // Invalidar cache para esta tabla
         clearCache();
-        cout << "✓ Variable float escrita: " << table_name << "[" << index << "] = " << value << endl;
+        //cout << "✓ Variable float escrita: " << table_name << "[" << index << "] = " << value << endl;
     }
 
     return result;
@@ -326,15 +326,15 @@ bool PACControlClient::writeInt32Variable(const string &table_name, int index, i
     cmd << index << " " << table_name << " " << value << " TWrite\r";
 
     string command = cmd.str();
-    cout << "Escribiendo int32: " << command << endl;
+    //cout << "Escribiendo int32: " << command << endl;
 
     bool result = sendCommand(command);
     if (result)
     {
         // Invalidar cache para esta tabla
         clearCache();
-        cout << "✓ Variable int32 escrita: " << table_name << "[" << index << "] = 0x"
-             << hex << value << dec << endl;
+        //cout << "✓ Variable int32 escrita: " << table_name << "[" << index << "] = 0x"
+            // << hex << value << dec << endl;
     }
 
     return result;
@@ -370,15 +370,15 @@ bool PACControlClient::writeInt32Table(const string &table_name, const vector<in
 bool PACControlClient::sendCommand(const string &command)
 {
     if (sock < 0) {
-        cout << "❌ Socket inválido - Marcando como desconectado" << endl;
+        //cout << "❌ Socket inválido - Marcando como desconectado" << endl;
         connected = false;
         return false;
     }
 
     ssize_t bytes_sent = send(sock, command.c_str(), command.length(), 0);
     if (bytes_sent != (ssize_t)command.length()) {
-        cout << "❌ Error enviando comando - Esperado: " << command.length() << " Enviado: " << bytes_sent << " (errno: " << errno << ")" << endl;
-        cout << "🔌 ERROR DE ENVÍO - Marcando como desconectado" << endl;
+        //cout << "❌ Error enviando comando - Esperado: " << command.length() << " Enviado: " << bytes_sent << " (errno: " << errno << ")" << endl;
+        //cout << "🔌 ERROR DE ENVÍO - Marcando como desconectado" << endl;
         connected = false;  // MARCAR COMO DESCONECTADO
         return false;
     }
@@ -485,7 +485,7 @@ void PACControlClient::flushSocketBuffer() {
     fcntl(sock, F_SETFL, flags);
     
     if (flushed_bytes > 0) {
-        // cout << "🧹 BUFFER LIMPIADO: Eliminados " << flushed_bytes << " bytes residuales del socket" << endl;
+        // //cout << "🧹 BUFFER LIMPIADO: Eliminados " << flushed_bytes << " bytes residuales del socket" << endl;
     }
 }
 
@@ -508,14 +508,14 @@ bool PACControlClient::validateDataIntegrity(const vector<uint8_t>& data, const 
     
     // CORRECCIÓN: Ser más tolerante con tamaños variables del PAC
     if (data.size() < 4) { // Al menos 1 valor (4 bytes)
-        cout << "⚠️  VALIDACIÓN FALLIDA: " << table_name << " - Datos insuficientes: " 
-             << data.size() << " bytes (mínimo 4)" << endl;
+        //cout << "⚠️  VALIDACIÓN FALLIDA: " << table_name << " - Datos insuficientes: " 
+            // << data.size() << " bytes (mínimo 4)" << endl;
         return false;
     }
     
     if (data.size() != expected_size) {
-        cout << "⚠️  ADVERTENCIA: " << table_name << " - Tamaño esperado: " << expected_size 
-             << " bytes, recibido: " << data.size() << " bytes (continuando...)" << endl;
+        //cout << "⚠️  ADVERTENCIA: " << table_name << " - Tamaño esperado: " << expected_size 
+            // << " bytes, recibido: " << data.size() << " bytes (continuando...)" << endl;
         // No fallar, solo advertir y continuar
     }
     
@@ -532,9 +532,9 @@ bool PACControlClient::validateDataIntegrity(const vector<uint8_t>& data, const 
     
     // Si es una tabla que debería tener valores pero solo tiene ceros, es sospechoso
     if (all_zeros && table_name.find("11003") != string::npos) {
-        cout << "✅ VALIDACIÓN OK: " << table_name << " - Datos todos en cero (esperado según PAC)" << endl;
+        //cout << "✅ VALIDACIÓN OK: " << table_name << " - Datos todos en cero (esperado según PAC)" << endl;
     } else if (has_large_values && table_name.find("11003") != string::npos) {
-        cout << "🚨 CONTAMINACIÓN DETECTADA: " << table_name << " tiene valores anómalos grandes" << endl;
+        //cout << "🚨 CONTAMINACIÓN DETECTADA: " << table_name << " tiene valores anómalos grandes" << endl;
         return false;
     }
     
@@ -693,24 +693,24 @@ bool PACControlClient::detectDataType(const string& table_name, bool& is_integer
         return false;
     }
     
-    cout << "🔍 ANÁLISIS: Detectando tipo de datos para " << table_name << endl;
+    //cout << "🔍 ANÁLISIS: Detectando tipo de datos para " << table_name << endl;
     
     // PASO 1: Detección basada en nombre de tabla (criterio principal)
     if (table_name.find("TBL_DA_") == 0 || table_name.find("TBL_LA_") == 0 || table_name.find("TBL_PA_") == 0) {
-        cout << "🏷️  TIPO POR NOMBRE: " << table_name << " -> ENTEROS (DA/LA/PA = datos digitales/alarmas)" << endl;
+        //cout << "🏷️  TIPO POR NOMBRE: " << table_name << " -> ENTEROS (DA/LA/PA = datos digitales/alarmas)" << endl;
         is_integer_data = true;
         return true;
     }
     
     if (table_name.find("TBL_DT_") == 0 || table_name.find("TBL_PT_") == 0 || 
         table_name.find("TBL_TT_") == 0 || table_name.find("TBL_LT_") == 0) {
-        cout << "🏷️  TIPO POR NOMBRE: " << table_name << " -> FLOTANTES (DT/PT/TT/LT = transmisores)" << endl;
+        //cout << "🏷️  TIPO POR NOMBRE: " << table_name << " -> FLOTANTES (DT/PT/TT/LT = transmisores)" << endl;
         is_integer_data = false;
         return true;
     }
     
     // PASO 2: Si no coincide con nomenclatura conocida, usar análisis de contenido
-    cout << "⚠️  TABLA DESCONOCIDA: " << table_name << " - Analizando contenido..." << endl;
+    //cout << "⚠️  TABLA DESCONOCIDA: " << table_name << " - Analizando contenido..." << endl;
     
     // Leer una muestra pequeña de datos
     stringstream cmd;
@@ -750,19 +750,19 @@ bool PACControlClient::detectDataType(const string& table_name, bool& is_integer
         }
     }
     
-    cout << "🔍 ANÁLISIS " << table_name << ": floats razonables=" << reasonable_floats 
-         << ", ints razonables=" << reasonable_ints << endl;
-    cout << "    Como float: ";
-    for (float f : as_floats) cout << f << " ";
-    cout << endl << "    Como int32: ";
-    for (int32_t i : as_ints) cout << i << " ";
-    cout << endl;
+    //cout << "🔍 ANÁLISIS " << table_name << ": floats razonables=" << reasonable_floats 
+         //<< ", ints razonables=" << reasonable_ints << endl;
+    //cout << "    Como float: ";
+    for (float f : as_floats) //cout << f << " ";
+    //cout << endl << "    Como int32: ";
+    for (int32_t i : as_ints) //cout << i << " ";
+    //cout << endl;
     
     // Si hay más integers razonables que floats, es probable que sea integer data
     is_integer_data = (reasonable_ints > reasonable_floats);
     
-    cout << "✅ DETECCIÓN: " << table_name << " -> " 
-         << (is_integer_data ? "DATOS INTEGER" : "DATOS FLOAT") << endl;
+    //cout << "✅ DETECCIÓN: " << table_name << " -> " 
+        // << (is_integer_data ? "DATOS INTEGER" : "DATOS FLOAT") << endl;
     
     return true;
 }
@@ -773,12 +773,12 @@ vector<float> PACControlClient::readTableAsFloat(const string& table_name,
     // Primero detectar el tipo de datos
     bool is_integer_data;
     if (!detectDataType(table_name, is_integer_data)) {
-        cout << "⚠️  No se pudo detectar tipo de datos para " << table_name << endl;
+        //cout << "⚠️  No se pudo detectar tipo de datos para " << table_name << endl;
         return readFloatTable(table_name, start_pos, end_pos); // Fallback
     }
     
     if (is_integer_data) {
-        cout << "🔄 CONVERSIÓN: Leyendo " << table_name << " como int32 y convirtiendo a float" << endl;
+        //cout << "🔄 CONVERSIÓN: Leyendo " << table_name << " como int32 y convirtiendo a float" << endl;
         vector<int32_t> int_values = readTableAsInt32(table_name, start_pos, end_pos);
         vector<float> float_values;
         for (int32_t val : int_values) {
@@ -786,7 +786,7 @@ vector<float> PACControlClient::readTableAsFloat(const string& table_name,
         }
         return float_values;
     } else {
-        cout << "📊 DIRECTO: Leyendo " << table_name << " como float nativo" << endl;
+        //cout << "📊 DIRECTO: Leyendo " << table_name << " como float nativo" << endl;
         return readFloatTable(table_name, start_pos, end_pos);
     }
 }
@@ -808,7 +808,7 @@ vector<int32_t> PACControlClient::readTableAsInt32(const string& table_name,
     cmd << "9 0 }" << table_name << " TRange.\r";
 
     string command = cmd.str();
-    cout << "📊 LEYENDO TABLA INT32: " << table_name << endl;
+    //cout << "📊 LEYENDO TABLA INT32: " << table_name << endl;
 
     // 🔧 SOLUCIÓN: Limpiar buffer del socket antes de enviar comando
     flushSocketBuffer();
@@ -830,20 +830,20 @@ vector<int32_t> PACControlClient::readTableAsInt32(const string& table_name,
     
     // 🔧 SOLUCIÓN: Validar integridad de los datos recibidos
     if (!validateDataIntegrity(raw_data, table_name)) {
-        cout << "⚠️  DATOS INT32 RECHAZADOS por validación de integridad: " << table_name << endl;
+        //cout << "⚠️  DATOS INT32 RECHAZADOS por validación de integridad: " << table_name << endl;
         
         // 🔧 RETRY: Intentar una segunda vez con delay si hay contaminación
-        cout << "🔄 REINTENTANDO lectura int32 después de 100ms..." << endl;
+        //cout << "🔄 REINTENTANDO lectura int32 después de 100ms..." << endl;
         this_thread::sleep_for(chrono::milliseconds(100));
         
         flushSocketBuffer();
         if (sendCommand(command)) {
             vector<uint8_t> retry_data = receiveData(expected_bytes);
             if (!retry_data.empty() && validateDataIntegrity(retry_data, table_name)) {
-                cout << "✅ RETRY INT32 EXITOSO: Datos válidos obtenidos en segundo intento" << endl;
+                //cout << "✅ RETRY INT32 EXITOSO: Datos válidos obtenidos en segundo intento" << endl;
                 raw_data = retry_data;
             } else {
-                cout << "❌ RETRY INT32 FALLIDO: Datos siguen siendo inválidos" << endl;
+                //cout << "❌ RETRY INT32 FALLIDO: Datos siguen siendo inválidos" << endl;
                 return {};
             }
         } else {
@@ -857,9 +857,9 @@ vector<int32_t> PACControlClient::readTableAsInt32(const string& table_name,
     // Convertir bytes a int32 (little endian)
     vector<int32_t> ints = convertBytesToInt32s(raw_data);
 
-    // cout << "✓ Tabla int32 " << table_name << " leída: " << ints.size() << " valores" << endl;
+    // //cout << "✓ Tabla int32 " << table_name << " leída: " << ints.size() << " valores" << endl;
     for (size_t i = 0; i < ints.size(); i++) {
-        // cout << "  [" << (start_pos + i) << "] = " << ints[i] << endl;
+        // //cout << "  [" << (start_pos + i) << "] = " << ints[i] << endl;
     }
 
     return ints;
@@ -876,7 +876,7 @@ void PACControlClient::analyzeDataStability(const string& table_name, const vect
     }
     
     if (read_history[table_name].size() >= 2) {
-        cout << "📊 ANÁLISIS DE ESTABILIDAD " << table_name << ":" << endl;
+       // //cout << "📊 ANÁLISIS DE ESTABILIDAD " << table_name << ":" << endl;
         
         // Comparar con lectura anterior
         auto& current = read_history[table_name].back();
@@ -887,28 +887,28 @@ void PACControlClient::analyzeDataStability(const string& table_name, const vect
             for (size_t i = 0; i < current.size(); i++) {
                 if (current[i] != previous[i]) {
                     differences++;
-                    cout << "  BYTE " << i << ": " << hex << (int)previous[i] << " -> " << (int)current[i] << dec << endl;
+                    //cout << "  BYTE " << i << ": " << hex << (int)previous[i] << " -> " << (int)current[i] << dec << endl;
                 }
             }
             
             if (differences == 0) {
-                cout << "  ✅ DATOS IDÉNTICOS - Sin cambios" << endl;
+                //cout << "  ✅ DATOS IDÉNTICOS - Sin cambios" << endl;
             } else {
-                cout << "  ⚠️  DATOS CAMBIARON - " << differences << " bytes diferentes" << endl;
+                //cout << "  ⚠️  DATOS CAMBIARON - " << differences << " bytes diferentes" << endl;
                 
                 // Analizar si es ruido o cambios reales
                 float change_percentage = (float)differences / current.size() * 100;
                 if (change_percentage < 10) {
-                    cout << "  🔍 POSIBLE RUIDO (" << change_percentage << "% cambió)" << endl;
+                    //cout << "  🔍 POSIBLE RUIDO (" << change_percentage << "% cambió)" << endl;
                 } else {
-                    cout << "  📈 CAMBIO SIGNIFICATIVO (" << change_percentage << "% cambió)" << endl;
+                    //cout << "  📈 CAMBIO SIGNIFICATIVO (" << change_percentage << "% cambió)" << endl;
                 }
             }
         }
         
         // Análisis de todas las lecturas
         if (read_history[table_name].size() >= 3) {
-            cout << "  📈 TENDENCIA (últimas " << read_history[table_name].size() << " lecturas):" << endl;
+            //cout << "  📈 TENDENCIA (últimas " << read_history[table_name].size() << " lecturas):" << endl;
             bool all_identical = true;
             for (size_t i = 1; i < read_history[table_name].size(); i++) {
                 if (read_history[table_name][i] != read_history[table_name][0]) {
@@ -918,9 +918,9 @@ void PACControlClient::analyzeDataStability(const string& table_name, const vect
             }
             
             if (all_identical) {
-                cout << "    ✅ COMPLETAMENTE ESTABLE" << endl;
+                //cout << "    ✅ COMPLETAMENTE ESTABLE" << endl;
             } else {
-                cout << "    ⚠️  VALORES VARIABLES" << endl;
+                //cout << "    ⚠️  VALORES VARIABLES" << endl;
             }
         }
     }
@@ -1064,7 +1064,7 @@ float PACControlClient::readSingleFloatVariableByTag(const string& tag_name)
         return 0.0f;
     }
 
-    DEBUG_INFO("📊 LEYENDO VARIABLE FLOAT INDIVIDUAL: " << tag_name);
+   // DEBUG_INFO("📊 LEYENDO VARIABLE FLOAT INDIVIDUAL: " << tag_name);
 
     // COMANDO CORRECTO confirmado por pruebas Python
     string command = "^" + tag_name + " @@ F.\r";
@@ -1262,7 +1262,7 @@ string PACControlClient::convertBytesToASCII(const vector<uint8_t>& bytes)
 bool PACControlClient::validateSingleVariableIntegrity(const vector<uint8_t>& data, 
                                                       const string& tag_name) {
     if (data.empty()) {
-        cout << "⚠️  VALIDACIÓN INDIVIDUAL FALLIDA: " << tag_name << " - Datos vacíos" << endl;
+        //cout << "⚠️  VALIDACIÓN INDIVIDUAL FALLIDA: " << tag_name << " - Datos vacíos" << endl;
         return false;
     }
     
@@ -1276,11 +1276,11 @@ bool PACControlClient::validateSingleVariableIntegrity(const vector<uint8_t>& da
     }
     
     if (!has_ascii_printable) {
-        cout << "⚠️  VALIDACIÓN INDIVIDUAL FALLIDA: " << tag_name << " - Sin caracteres ASCII válidos" << endl;
+        //cout << "⚠️  VALIDACIÓN INDIVIDUAL FALLIDA: " << tag_name << " - Sin caracteres ASCII válidos" << endl;
         return false;
     }
     
-    cout << "✅ VALIDACIÓN INDIVIDUAL OK: " << tag_name << " - Datos ASCII válidos" << endl;
+    //cout << "✅ VALIDACIÓN INDIVIDUAL OK: " << tag_name << " - Datos ASCII válidos" << endl;
     return true;
 }
 

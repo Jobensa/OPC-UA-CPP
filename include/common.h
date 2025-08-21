@@ -7,7 +7,7 @@ using namespace std;
 
 // ============== MACROS DEBUG ==============
 // Macros para debug y logging compatibles con código original
-#define DEBUG_INFO(msg) do { } while(0) // Desactivado para producción
+#define DEBUG_INFO(msg) do { std::cout << "[INFO] " << msg << std::endl; } while(0) // Activado temporalmente para diagnóstico
 #define DEBUG_VERBOSE(msg) do { } while(0)  // Desactivado para producción
 #define DEBUG_ERROR(msg) do { std::cerr << "[ERROR] " << msg << std::endl; } while(0)
 #define DEBUG_WARNING(msg) do { std::cout << "[WARNING] " << msg << std::endl; } while(0)

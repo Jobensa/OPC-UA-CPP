@@ -42,6 +42,7 @@ struct Config {
     int pac_port = 22001;
     int opcua_port = 4840;
     int update_interval_ms = 2000;
+    std::string server_name = "PAC Control SCADA Server";
     std::vector<Tag> tags;
     std::vector<Variable> variables;
 };
