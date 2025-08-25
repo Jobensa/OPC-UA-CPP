@@ -13,10 +13,13 @@ using json = nlohmann::json;
 UA_Server *server = nullptr;
 std::atomic<bool> running{true};
 bool server_running = true;
-bool updating_internally = true; // Bandera para evitar callback durante actualizaciones internas
+bool updating_internally = false; // ¡CAMBIO! Inicializar en false
 std::unique_ptr<PACControlClient> pacClient;
 Config config;
 std::mutex update_mutex;
+
+// NUEVA: Bandera para distinguir escrituras internas del servidor
+static std::atomic<bool> server_writing_internally{false};
 
 // ============== FUNCIONES AUXILIARES ==============
 
@@ -240,6 +243,12 @@ static void writeCallback(UA_Server *server,
                          const UA_NumericRange *range,
                          const UA_DataValue *data) {
     
+    // 🔍 IGNORAR ESCRITURAS INTERNAS DEL SERVIDOR
+    if (server_writing_internally.load()) {
+        DEBUG_INFO("⚠️ Escritura interna del servidor ignorada");
+        return;
+    }
+    
     string nodeIdStr = string((char*)nodeId->identifier.string.data, 
                              nodeId->identifier.string.length);
     
@@ -270,6 +279,9 @@ static void writeCallback(UA_Server *server,
         // Auto-registrar escrituras no críticas con sesión válida
         WriteRegistrationManager::registerWrite(nodeIdStr, "Auto-detectado normal");
         DEBUG_INFO("🟡 Auto-registro de escritura: " << nodeIdStr);
+        is_registered = true;
+        // Actualizar el estado crítico después del registro
+        is_critical = WriteRegistrationManager::isCriticalWrite(nodeIdStr);
     }
     
     // 🔴 PROCESAR ESCRITURA REGISTRADA
@@ -284,113 +296,91 @@ static void writeCallback(UA_Server *server,
         DEBUG_INFO("🔴 MODO CRÍTICO ACTIVADO - Actualizaciones bloqueadas");
     }
     
-
-    if (updating_internally)
-    {
-        // DEBUG_INFO("❌ WRITE REQUEST ignorado durante actualización interna");
-        return; // Ignorar durante actualizaciones internas
-    }
-
-    // string sessionIdStr = string((char *)sessionId->identifier.string.data,
-    //                              sessionId->identifier.string.length);
-
-    DEBUG_INFO("✍️ ESCRITURA EXTERNA de cliente OPC-UA para: " << sessionId );
-
-    // DEBUG_INFO("✍️ WRITE REQUEST para: " << nodeIdStr);
-
-    if (nodeId->identifierType != UA_NODEIDTYPE_STRING)
-    {
-        // DEBUG_INFO("❌ WRITE BLOQUEADO: nodeId no es string");
-        //updating_internally = false; // 🔓 Restaurar actualizaciones
-        return;
-    }
-
-    if (!pacClient || !pacClient->isConnected())
-    {
-        DEBUG_INFO("❌ Sin conexión PAC");
-        //updating_internally = false; // 🔓 Restaurar actualizaciones
-        return;
-    }
-
-    // Buscar variable
-    Variable *var = nullptr;
-    for (auto &v : config.variables)
-    {
-        if (v.opcua_name == nodeIdStr)
-        {
-            var = &v;
-            break;
-        }
-    }
-
-    if (!var || !var->writable)
-    {
-        DEBUG_INFO("❌ Variable no escribible: " << nodeIdStr << " (encontrada: " << (var ? "sí" : "no") << ", escribible: " << (var ? (var->writable ? "sí" : "no") : "N/A") << ")");
-        DEBUG_INFO("❌ Variable no escribible: " << nodeIdStr << endl);
-        //updating_internally = false; // 🔓 Restaurar actualizaciones
-        return;
-    }
-
-    // Escribir al PAC
-    bool success = false;
-    if (var->type == Variable::FLOAT && data->value.type == &UA_TYPES[UA_TYPES_FLOAT])
-    {
-        float value = *(UA_Float *)data->value.data;
-        DEBUG_INFO("🔧 Escribiendo FLOAT: " << value << " a variable: " << var->opcua_name << " (PAC source: " << var->pac_source << ")");
-
-        // Verificar si es variable de tabla o simple
-        size_t pos = var->pac_source.find(':');
-        if (pos != string::npos)
-        {
-            // Variable de tabla con índice específico
-            string table = var->pac_source.substr(0, pos);
-            int index = stoi(var->pac_source.substr(pos + 1));
-            DEBUG_INFO("📝 Escribiendo a tabla: " << table << " índice: " << index << " valor: " << value);
-            success = pacClient->writeFloatTableIndex(table, index, value);
-        }
-        else
-        {
-            // Variable simple individual
-            DEBUG_INFO("📝 Escribiendo variable simple: " << var->pac_source << " valor: " << value);
-            success = pacClient->writeSingleFloatVariable(var->pac_source, value);
-        }
-        DEBUG_INFO("✅ Resultado escritura FLOAT: " << (success ? "ÉXITO" : "FALLO"));
-    }
-    else if (var->type == Variable::INT32 && data->value.type == &UA_TYPES[UA_TYPES_INT32])
-    {
-        int32_t value = *(UA_Int32 *)data->value.data;
-        DEBUG_INFO("🔧 Escribiendo INT32: " << value << " a variable: " << var->opcua_name << " (PAC source: " << var->pac_source << ")");
-
-        // Verificar si es variable de tabla o simple
-        size_t pos = var->pac_source.find(':');
-        if (pos != string::npos)
-        {
-            // Variable de tabla con índice específico
-            string table = var->pac_source.substr(0, pos);
-            int index = stoi(var->pac_source.substr(pos + 1));
-            DEBUG_INFO("📝 Escribiendo a tabla INT32: " << table << " índice: " << index << " valor: " << value);
-            success = pacClient->writeInt32TableIndex(table, index, value);
-        }
-        else
-        {
-            // Variable simple individual
-            DEBUG_INFO("📝 Escribiendo variable simple INT32: " << var->pac_source << " valor: " << value);
-            success = pacClient->writeSingleInt32Variable(var->pac_source, value);
-        }
-        DEBUG_INFO("✅ Resultado escritura INT32: " << (success ? "ÉXITO" : "FALLO"));
-    }
-    else
-    {
-        DEBUG_INFO("❌ Tipo de datos incompatible - Variable tipo: " << (var->type == Variable::FLOAT ? "FLOAT" : "INT32") << ", Data tipo: " << data->value.type->typeName);
-    }
-
-    // ✅ CONSUMIR LA ESCRITURA DESPUÉS DE PROCESARLA
-    WriteRegistrationManager::consumeWrite(nodeIdStr);
+    // ===== PROCESAMIENTO DE LA ESCRITURA =====
+    bool write_success = false;
     
+    // Validaciones previas
+    if (nodeId->identifierType == UA_NODEIDTYPE_STRING && 
+        pacClient && pacClient->isConnected()) {
+        
+        // Buscar variable
+        Variable *var = nullptr;
+        for (auto &v : config.variables) {
+            if (v.opcua_name == nodeIdStr) {
+                var = &v;
+                break;
+            }
+        }
+
+        if (var && var->writable) {
+            // Escribir al PAC según el tipo de variable
+            if (var->type == Variable::FLOAT && data->value.type == &UA_TYPES[UA_TYPES_FLOAT]) {
+                float value = *(UA_Float *)data->value.data;
+                DEBUG_INFO("🔧 Escribiendo FLOAT: " << value << " a variable: " << var->opcua_name << " (PAC source: " << var->pac_source << ")");
+
+                // Verificar si es variable de tabla o simple
+                size_t pos = var->pac_source.find(':');
+                if (pos != string::npos) {
+                    // Variable de tabla con índice específico
+                    string table = var->pac_source.substr(0, pos);
+                    int index = stoi(var->pac_source.substr(pos + 1));
+                    DEBUG_INFO("📝 Escribiendo a tabla: " << table << " índice: " << index << " valor: " << value);
+                    write_success = pacClient->writeFloatTableIndex(table, index, value);
+                } else {
+                    // Variable simple individual
+                    DEBUG_INFO("📝 Escribiendo variable simple: " << var->pac_source << " valor: " << value);
+                    write_success = pacClient->writeSingleFloatVariable(var->pac_source, value);
+                }
+                DEBUG_INFO("✅ Resultado escritura FLOAT: " << (write_success ? "ÉXITO" : "FALLO"));
+                
+            } else if (var->type == Variable::INT32 && data->value.type == &UA_TYPES[UA_TYPES_INT32]) {
+                int32_t value = *(UA_Int32 *)data->value.data;
+                DEBUG_INFO("🔧 Escribiendo INT32: " << value << " a variable: " << var->opcua_name << " (PAC source: " << var->pac_source << ")");
+
+                // Verificar si es variable de tabla o simple
+                size_t pos = var->pac_source.find(':');
+                if (pos != string::npos) {
+                    // Variable de tabla con índice específico
+                    string table = var->pac_source.substr(0, pos);
+                    int index = stoi(var->pac_source.substr(pos + 1));
+                    DEBUG_INFO("📝 Escribiendo a tabla INT32: " << table << " índice: " << index << " valor: " << value);
+                    write_success = pacClient->writeInt32TableIndex(table, index, value);
+                } else {
+                    // Variable simple individual
+                    DEBUG_INFO("📝 Escribiendo variable simple INT32: " << var->pac_source << " valor: " << value);
+                    write_success = pacClient->writeSingleInt32Variable(var->pac_source, value);
+                }
+                DEBUG_INFO("✅ Resultado escritura INT32: " << (write_success ? "ÉXITO" : "FALLO"));
+                
+            } else {
+                DEBUG_INFO("❌ Tipo de datos incompatible - Variable tipo: " << (var->type == Variable::FLOAT ? "FLOAT" : "INT32") << ", Data tipo: " << data->value.type->typeName);
+            }
+        } else {
+            DEBUG_INFO("❌ Variable no escribible: " << nodeIdStr);
+        }
+    } else {
+        if (nodeId->identifierType != UA_NODEIDTYPE_STRING) {
+            DEBUG_INFO("❌ WRITE BLOQUEADO: nodeId no es string");
+        } else {
+            DEBUG_INFO("❌ Sin conexión PAC");
+        }
+    }
+
+    // ✅ CONSUMIR LA ESCRITURA DESPUÉS DE PROCESARLA (MOVIDO AQUÍ)
+    WriteRegistrationManager::consumeWrite(nodeIdStr);
+
     // 🔓 RESTAURAR ACTUALIZACIONES DESPUÉS DE ESCRITURA CRÍTICA
     if (is_critical) {
-        // Pequeña pausa para asegurar que la escritura se complete
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        if (write_success) {
+            DEBUG_INFO("🎯 ESCRITURA CRÍTICA COMPLETADA EXITOSAMENTE: " << nodeIdStr);
+            // Pausa más larga para escrituras exitosas para asegurar persistencia
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        } else {
+            DEBUG_INFO("❌ ESCRITURA CRÍTICA FALLÓ: " << nodeIdStr);
+            // Pausa corta para escrituras fallidas
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        
         updating_internally = false;
         DEBUG_INFO("🔴 MODO CRÍTICO DESACTIVADO - Actualizaciones restauradas");
     }
@@ -500,10 +490,28 @@ void updateData()
 
     while (running && server_running)
     {
+        // 🔍 VERIFICAR SI ES SEGURO HACER ACTUALIZACIONES
+        if (!WriteRegistrationManager::isSafeToUpdate()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            continue;  // Esperar hasta que sea seguro
+        }
+
+        if (updating_internally) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            continue;
+        }
+
         if (pacClient && pacClient->isConnected())
         {
+            // 🧹 LIMPIAR ESCRITURAS EXPIRADAS
+            WriteRegistrationManager::cleanExpiredWrites();
+            
             // ⚠️ Solo actualizar si NO hay escritura en progreso
             updating_internally = true;
+            WriteRegistrationManager::markUpdateTime();
+
+            // 🔒 ACTIVAR BANDERA DE ESCRITURA INTERNA DEL SERVIDOR
+            server_writing_internally = true;
 
             // Separar variables por tipo
             vector<Variable *> simpleVars;             // Variables individuales (F_xxx, I_xxx)
@@ -564,7 +572,7 @@ void updateData()
                 this_thread::sleep_for(chrono::milliseconds(10));
             }
 
-            // 2. Actualizar variables de tabla (código existente)
+            // 2. Actualizar variables de tabla
             for (const auto &[tableName, vars] : tableVars)
             {
                 if (vars.empty())
@@ -627,15 +635,6 @@ void updateData()
                     // Leer tabla de valores (float)
                     vector<float> values = pacClient->readFloatTable(tableName, minIndex, maxIndex);
 
-                    // // Debug específico para TBL_TT_11006
-                    // if (tableName == "TBL_TT_11006") {
-                    //     DEBUG_INFO("🔍 DETALLE TBL_TT_11006 - minIndex=" << minIndex << ", maxIndex=" << maxIndex);
-                    //     DEBUG_INFO("📋 Valores leídos (" << values.size() << " elementos):");
-                    //     for (size_t i = 0; i < values.size(); i++) {
-                    //         DEBUG_INFO("  [" << (minIndex + i) << "]: " << values[i]);
-                    //     }
-                    // }
-
                     // Actualizar variables
                     for (const auto &var : vars)
                     {
@@ -655,11 +654,6 @@ void updateData()
                             float newValue = values[arrayIndex];
                             UA_Variant_setScalar(&value, &newValue, &UA_TYPES[UA_TYPES_FLOAT]);
 
-                            // // Debug específico para TT_11006
-                            // if (tableName == "TBL_TT_11006") {
-                            //     DEBUG_INFO("🎯 " << var->opcua_name << " = " << newValue << " (índice PAC: " << index << ", arrayIndex: " << arrayIndex << ")");
-                            // }
-
                             UA_Server_writeValue(server, nodeId, value);
                         }
                     }
@@ -669,13 +663,11 @@ void updateData()
                 this_thread::sleep_for(chrono::milliseconds(50));
             }
 
+            // 🔓 DESACTIVAR BANDERA DE ESCRITURA INTERNA DEL SERVIDOR
+            server_writing_internally = false;
+            
             // Desactivar bandera de actualización interna
             updating_internally = false;
-        }
-        else if (updating_internally)
-        {
-            // 🔄 Escritura en progreso - esperar un poco antes de reintentar
-            this_thread::sleep_for(chrono::milliseconds(10));
         }
         else
         {
@@ -697,15 +689,8 @@ void updateData()
             }
         }
 
-        // Esperar intervalo - más corto si hay escritura en progreso
-        if (updating_internally)
-        {
-            this_thread::sleep_for(chrono::milliseconds(10));
-        }
-        else
-        {
-            this_thread::sleep_for(chrono::milliseconds(config.update_interval_ms));
-        }
+        // Esperar intervalo
+        this_thread::sleep_for(chrono::milliseconds(config.update_interval_ms));
     }
 }
 

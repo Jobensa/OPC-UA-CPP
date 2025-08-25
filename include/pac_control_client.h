@@ -24,6 +24,12 @@ struct PendingWrite {
     bool is_critical;  // true para setpoints, PID modes, etc.
     std::string client_info;  // Info del cliente para logging
     
+    // Constructor por defecto
+    PendingWrite() 
+        : nodeId(""), registered_time(std::chrono::steady_clock::now()), 
+          is_critical(false), client_info("") {}
+    
+    // Constructor con parámetros
     PendingWrite(const std::string& id, bool critical = false, const std::string& info = "")
         : nodeId(id), registered_time(std::chrono::steady_clock::now()), 
           is_critical(critical), client_info(info) {}
@@ -237,6 +243,5 @@ public:
     // Método para identificar automáticamente escrituras críticas
     static bool isVariableCritical(const std::string& nodeId);
 };
-
 
 #endif // PAC_CONTROL_CLIENT_H

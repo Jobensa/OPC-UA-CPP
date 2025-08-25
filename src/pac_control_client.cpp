@@ -1581,7 +1581,7 @@ void PACControlClient::debugWriteOperation(const std::string& table_name, int in
 // Definición de variables estáticas
 std::map<std::string, PendingWrite> WriteRegistrationManager::pending_writes;
 std::mutex WriteRegistrationManager::write_mutex;
-std::chrono::steady_clock::time_point WriteRegistrationManager::last_update_time;
+std::chrono::steady_clock::time_point WriteRegistrationManager::last_update_time = std::chrono::steady_clock::now();
 
 void WriteRegistrationManager::registerCriticalWrite(const std::string& nodeId, const std::string& client_info) {
     std::lock_guard<std::mutex> lock(write_mutex);
