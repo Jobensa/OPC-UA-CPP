@@ -233,42 +233,68 @@ bool loadConfig()
 // ============== CALLBACK DE ESCRITURA ==============
 
 static void writeCallback(UA_Server *server,
-                          const UA_NodeId *sessionId,
-                          void *sessionContext,
-                          const UA_NodeId *nodeId,
-                          void *nodeContext,
-                          const UA_NumericRange *range,
-                          const UA_DataValue *data)
-{
-
-   
-
-    // if (updating_internally)
-    // {
-    //     return; // Si ya estamos actualizando internamente, ignorar este callback
-    // }
+                         const UA_NodeId *sessionId,
+                         void *sessionContext,
+                         const UA_NodeId *nodeId,
+                         void *nodeContext,
+                         const UA_NumericRange *range,
+                         const UA_DataValue *data) {
+    
+    string nodeIdStr = string((char*)nodeId->identifier.string.data, 
+                             nodeId->identifier.string.length);
+    
+    // 🔍 VERIFICAR SI LA ESCRITURA ESTÁ PRE-REGISTRADA
+    bool is_registered = WriteRegistrationManager::isWriteRegistered(nodeIdStr);
+    bool is_critical = WriteRegistrationManager::isCriticalWrite(nodeIdStr);
+    
+    // 🔍 AUTO-DETECCIÓN DE ESCRITURAS CRÍTICAS
+    if (!is_registered && WriteRegistrationManager::isVariableCritical(nodeIdStr)) {
+        WriteRegistrationManager::registerCriticalWrite(nodeIdStr, "Auto-detectado crítico");
+        is_registered = true;
+        is_critical = true;
+        DEBUG_INFO("🔴 AUTO-REGISTRO CRÍTICO: " << nodeIdStr);
+    }
+    
+    // Si NO está registrada, verificar si es actualización interna
+    if (!is_registered) {
+        // Verificaciones adicionales para detección automática
+        bool hasValidSession = (sessionId != nullptr && 
+                               sessionId->identifierType == UA_NODEIDTYPE_NUMERIC && 
+                               sessionId->identifier.numeric > 0);
+        
+        if (!hasValidSession) {
+            DEBUG_INFO("⚠️ Escritura NO registrada y sin sesión válida - IGNORADA: " << nodeIdStr);
+            return;
+        }
+        
+        // Auto-registrar escrituras no críticas con sesión válida
+        WriteRegistrationManager::registerWrite(nodeIdStr, "Auto-detectado normal");
+        DEBUG_INFO("🟡 Auto-registro de escritura: " << nodeIdStr);
+    }
+    
+    // 🔴 PROCESAR ESCRITURA REGISTRADA
+    string write_info = WriteRegistrationManager::getWriteInfo(nodeIdStr);
+    DEBUG_INFO("✍️ PROCESANDO ESCRITURA: " << nodeIdStr 
+              << " (Crítica: " << (is_critical ? "SÍ" : "NO") 
+              << ", Info: " << write_info << ")");
+    
+    // 🔒 BLOQUEAR ACTUALIZACIONES DURANTE ESCRITURA CRÍTICA
+    if (is_critical) {
+        updating_internally = true;  // Bloqueo total para escrituras críticas
+        DEBUG_INFO("🔴 MODO CRÍTICO ACTIVADO - Actualizaciones bloqueadas");
+    }
     
 
-    // if (data->value.type == nullptr || data->value.data == nullptr) {
-    //     //DEBUG_INFO("❌ WRITE REQUEST con datos nulos");
-    //     updating_internally = false;  // 🔓 Restaurar actualizaciones
-    //     return;
-    // }
-
-    if (sessionId == nullptr ||  sessionId->identifier.string.data == nullptr)
+    if (updating_internally)
     {
-        // DEBUG_INFO("❌ WRITE REQUEST sin sessionId válido");
-        //updating_internally = false; // 🔓 Restaurar actualizaciones
-        return;
+        // DEBUG_INFO("❌ WRITE REQUEST ignorado durante actualización interna");
+        return; // Ignorar durante actualizaciones internas
     }
-
-    string nodeIdStr = string((char *)nodeId->identifier.string.data,
-                              nodeId->identifier.string.length);
 
     // string sessionIdStr = string((char *)sessionId->identifier.string.data,
     //                              sessionId->identifier.string.length);
 
-    DEBUG_INFO("✍️ ESCRITURA EXTERNA de cliente OPC-UA para: " << sessionId->identifier.string.data );
+    DEBUG_INFO("✍️ ESCRITURA EXTERNA de cliente OPC-UA para: " << sessionId );
 
     // DEBUG_INFO("✍️ WRITE REQUEST para: " << nodeIdStr);
 
@@ -358,10 +384,16 @@ static void writeCallback(UA_Server *server,
         DEBUG_INFO("❌ Tipo de datos incompatible - Variable tipo: " << (var->type == Variable::FLOAT ? "FLOAT" : "INT32") << ", Data tipo: " << data->value.type->typeName);
     }
 
-    // 🔓 RESTAURAR ACTUALIZACIONES AUTOMÁTICAS
-    updating_internally = false;
-
-    // No mostrar resultado de escritura
+    // ✅ CONSUMIR LA ESCRITURA DESPUÉS DE PROCESARLA
+    WriteRegistrationManager::consumeWrite(nodeIdStr);
+    
+    // 🔓 RESTAURAR ACTUALIZACIONES DESPUÉS DE ESCRITURA CRÍTICA
+    if (is_critical) {
+        // Pequeña pausa para asegurar que la escritura se complete
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        updating_internally = false;
+        DEBUG_INFO("🔴 MODO CRÍTICO DESACTIVADO - Actualizaciones restauradas");
+    }
 }
 
 // ============== CREACIÓN DE NODOS ==============

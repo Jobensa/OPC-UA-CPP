@@ -28,7 +28,7 @@
       "program": "${workspaceFolder}/build/opcua_server_production",
       "args": [],
       "stopAtEntry": false,
-      "cwd": "${fileDirname}",
+      "cwd": "${workspaceFolder}",
       "environment": [],
       "externalConsole": false,
       "MIMode": "gdb",

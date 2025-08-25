@@ -12,7 +12,23 @@
 #include <mutex>
 #include <chrono>
 
+
 using namespace std; 
+
+#include <set>
+#include <atomic>
+
+struct PendingWrite {
+    std::string nodeId;
+    std::chrono::steady_clock::time_point registered_time;
+    bool is_critical;  // true para setpoints, PID modes, etc.
+    std::string client_info;  // Info del cliente para logging
+    
+    PendingWrite(const std::string& id, bool critical = false, const std::string& info = "")
+        : nodeId(id), registered_time(std::chrono::steady_clock::now()), 
+          is_critical(critical), client_info(info) {}
+};
+
 // Estructuras para manejo de alarmas PAC Control
 struct BitsAlarm_t {
     uint32_t value; // Valor entero de 32 bits
@@ -182,5 +198,45 @@ private:
     bool receiveWriteConfirmation();
     void clearCacheForTable(const std::string& table_name);    
 };
+
+
+class WriteRegistrationManager {
+private:
+    static std::map<std::string, PendingWrite> pending_writes;
+    static std::mutex write_mutex;
+    static std::chrono::steady_clock::time_point last_update_time;
+    
+public:
+    // Registrar escritura crítica (setpoints, modos PID, etc.)
+    static void registerCriticalWrite(const std::string& nodeId, const std::string& client_info = "");
+    
+    // Registrar escritura normal
+    static void registerWrite(const std::string& nodeId, const std::string& client_info = "");
+    
+    // Verificar si una escritura está registrada
+    static bool isWriteRegistered(const std::string& nodeId);
+    
+    // Verificar si es una escritura crítica
+    static bool isCriticalWrite(const std::string& nodeId);
+    
+    // Consumir (eliminar) escritura después de procesarla
+    static void consumeWrite(const std::string& nodeId);
+    
+    // Limpiar escrituras expiradas
+    static void cleanExpiredWrites();
+    
+    // Verificar si es seguro hacer actualizaciones periódicas
+    static bool isSafeToUpdate();
+    
+    // Marcar tiempo de última actualización
+    static void markUpdateTime();
+    
+    // Obtener información de escritura
+    static std::string getWriteInfo(const std::string& nodeId);
+    
+    // Método para identificar automáticamente escrituras críticas
+    static bool isVariableCritical(const std::string& nodeId);
+};
+
 
 #endif // PAC_CONTROL_CLIENT_H

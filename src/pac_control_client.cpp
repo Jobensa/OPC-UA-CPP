@@ -1442,7 +1442,7 @@ bool PACControlClient::writeFloatTableIndex(const std::string& table_name, int i
 
     // FORMATO CORRECTO confirmado por Python: <valor> <index> }<table> TABLE!\r
     std::ostringstream cmd;
-    cmd << std::setprecision(7) << value << " " << index << " }" << table_name << " TABLE!\r";
+    cmd << std::fixed << std::setprecision(3) << value << " " << index << " }" << table_name << " TABLE!\r";
     std::string command = cmd.str();
 
     DEBUG_INFO("🔥 Escribiendo tabla FLOAT (FORMATO CORRECTO): " << table_name << "[" << index << "] = " << value);
@@ -1574,4 +1574,141 @@ void PACControlClient::debugWriteOperation(const std::string& table_name, int in
             DEBUG_INFO("  📊 Cambio esperado: " << value_before << " -> " << value << " (Δ=" << expected_change << ")");
         }
     }
+}
+
+// ============== IMPLEMENTACIÓN DEL SISTEMA DE ESCRITURAS CRÍTICAS ==============
+
+// Definición de variables estáticas
+std::map<std::string, PendingWrite> WriteRegistrationManager::pending_writes;
+std::mutex WriteRegistrationManager::write_mutex;
+std::chrono::steady_clock::time_point WriteRegistrationManager::last_update_time;
+
+void WriteRegistrationManager::registerCriticalWrite(const std::string& nodeId, const std::string& client_info) {
+    std::lock_guard<std::mutex> lock(write_mutex);
+    pending_writes[nodeId] = PendingWrite(nodeId, true, client_info);
+    
+    DEBUG_INFO("🔴 ESCRITURA CRÍTICA REGISTRADA: " << nodeId 
+              << " (Cliente: " << client_info << ")");
+}
+
+void WriteRegistrationManager::registerWrite(const std::string& nodeId, const std::string& client_info) {
+    std::lock_guard<std::mutex> lock(write_mutex);
+    pending_writes[nodeId] = PendingWrite(nodeId, false, client_info);
+    
+    DEBUG_INFO("🟡 ESCRITURA REGISTRADA: " << nodeId 
+              << " (Cliente: " << client_info << ")");
+}
+
+bool WriteRegistrationManager::isWriteRegistered(const std::string& nodeId) {
+    std::lock_guard<std::mutex> lock(write_mutex);
+    return pending_writes.find(nodeId) != pending_writes.end();
+}
+
+bool WriteRegistrationManager::isCriticalWrite(const std::string& nodeId) {
+    std::lock_guard<std::mutex> lock(write_mutex);
+    auto it = pending_writes.find(nodeId);
+    return (it != pending_writes.end() && it->second.is_critical);
+}
+
+void WriteRegistrationManager::consumeWrite(const std::string& nodeId) {
+    std::lock_guard<std::mutex> lock(write_mutex);
+    auto it = pending_writes.find(nodeId);
+    if (it != pending_writes.end()) {
+        DEBUG_INFO("✅ ESCRITURA CONSUMIDA: " << nodeId 
+                  << " (Crítica: " << (it->second.is_critical ? "SÍ" : "NO") << ")");
+        pending_writes.erase(it);
+    }
+}
+
+void WriteRegistrationManager::cleanExpiredWrites() {
+    std::lock_guard<std::mutex> lock(write_mutex);
+    auto now = std::chrono::steady_clock::now();
+    
+    for (auto it = pending_writes.begin(); it != pending_writes.end();) {
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+            now - it->second.registered_time).count();
+        
+        // Escrituras críticas expiran en 30 segundos, normales en 10
+        int timeout = it->second.is_critical ? 30 : 10;
+        
+        if (elapsed > timeout) {
+            DEBUG_INFO("⏰ ESCRITURA EXPIRADA: " << it->first 
+                      << " (Tiempo: " << elapsed << "s)");
+            it = pending_writes.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+bool WriteRegistrationManager::isSafeToUpdate() {
+    std::lock_guard<std::mutex> lock(write_mutex);
+    
+    // Si hay escrituras críticas pendientes, NO es seguro actualizar
+    for (const auto& pair : pending_writes) {
+        if (pair.second.is_critical) {
+            DEBUG_INFO("⚠️ ACTUALIZACIÓN BLOQUEADA: Escritura crítica pendiente: " 
+                      << pair.first);
+            return false;
+        }
+    }
+    
+    // Si hay escrituras normales muy recientes (< 2 segundos), esperar
+    auto now = std::chrono::steady_clock::now();
+    for (const auto& pair : pending_writes) {
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - pair.second.registered_time).count();
+        if (elapsed < 2000) {  // 2 segundos buffer
+            DEBUG_INFO("⚠️ ACTUALIZACIÓN RETRASADA: Escritura reciente: " 
+                      << pair.first << " (" << elapsed << "ms)");
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+void WriteRegistrationManager::markUpdateTime() {
+    std::lock_guard<std::mutex> lock(write_mutex);
+    last_update_time = std::chrono::steady_clock::now();
+}
+
+std::string WriteRegistrationManager::getWriteInfo(const std::string& nodeId) {
+    std::lock_guard<std::mutex> lock(write_mutex);
+    auto it = pending_writes.find(nodeId);
+    if (it != pending_writes.end()) {
+        return "Cliente: " + it->second.client_info + 
+               ", Crítica: " + (it->second.is_critical ? "SÍ" : "NO");
+    }
+    return "No registrada";
+}
+
+bool WriteRegistrationManager::isVariableCritical(const std::string& nodeId) {
+    // Identificar automáticamente variables críticas por nombre
+    // Setpoints son críticos
+    if (nodeId.find("SetHH") != std::string::npos ||
+        nodeId.find("SetH") != std::string::npos ||
+        nodeId.find("SetL") != std::string::npos ||
+        nodeId.find("SetLL") != std::string::npos) {
+        return true;
+    }
+    
+    // Variables de modo/control son críticas
+    if (nodeId.find("Mode") != std::string::npos ||
+        nodeId.find("Manual") != std::string::npos ||
+        nodeId.find("Auto") != std::string::npos ||
+        nodeId.find("Enable") != std::string::npos ||
+        nodeId.find("Disable") != std::string::npos) {
+        return true;
+    }
+    
+    // Variables de emergencia son críticas
+    if (nodeId.find("Emergency") != std::string::npos ||
+        nodeId.find("Stop") != std::string::npos ||
+        nodeId.find("Shutdown") != std::string::npos ||
+        nodeId.find("Trip") != std::string::npos) {
+        return true;
+    }
+    
+    return false; // Por defecto, no críticas
 }

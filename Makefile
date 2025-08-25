@@ -20,6 +20,17 @@ DEMO_OBJS = $(BUILD_DIR)/main.o $(BUILD_DIR)/opcua_server.o $(BUILD_DIR)/pac_con
 # Regla por defecto: versión de producción
 all: production
 
+# Flags de debug para GDB
+CXXFLAGS += -g -O0 -DDEBUG -Wall -Wextra
+
+# También puedes crear un target específico para debug:
+debug: CXXFLAGS += -g -O0 -DDEBUG -ggdb
+debug: all
+
+# Target para versión release (sin debug)
+release: CXXFLAGS += -O2 -DNDEBUG
+release: all
+
 # Versión PRODUCCIÓN (recomendada) - arquitectura simplificada con PAC real
 production: $(BUILD_DIR)/opcua_server_production
 
