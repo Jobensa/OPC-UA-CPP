@@ -79,7 +79,7 @@ void PACControlClient::disconnect()
     connected = false;
 }
 
-// CORRECCIÓN: Reemplazar cout por DEBUG_VERBOSE en las funciones clave
+// CORRECCIÓN: Reemplazar cout por LOG_DEBUG en las funciones clave
 vector<float> PACControlClient::readFloatTable(const string &table_name,
                                                int start_pos, int end_pos)
 {
@@ -95,33 +95,33 @@ vector<float> PACControlClient::readFloatTable(const string &table_name,
     string cache_key = table_name + "_" + to_string(start_pos) + "_" + to_string(end_pos);
     if (cache_enabled && isCacheValid(cache_key))
     {
-        DEBUG_VERBOSE("📋 CACHE HIT: Usando datos cached para " << table_name);
+        LOG_DEBUG("📋 CACHE HIT: Usando datos cached para " << table_name);
         return table_cache[cache_key].data;
     }
 
     stringstream cmd;
     
-    DEBUG_VERBOSE("📊 PARÁMETROS: start_pos=" << start_pos << ", end_pos=" << end_pos);
+    LOG_DEBUG("📊 PARÁMETROS: start_pos=" << start_pos << ", end_pos=" << end_pos);
     
     // 🔧 COMANDO CORRECTO según README.md: Formato "<end_pos> 0 }<tabla> TRange.\r"
     // Ejemplo: "9 0 }TBL_TT_11006 TRange.\r" - SIEMPRE usar end_pos=9 para leer tabla completa (10 elementos, índices 0-9)
     // El PAC siempre devuelve la tabla completa independientemente del mapeo JSON
     if (table_name.find("TBL_DA_") != string::npos) {
-        DEBUG_VERBOSE("🚨 LEYENDO TABLA DE ALARMAS: " << table_name);
+        LOG_DEBUG("🚨 LEYENDO TABLA DE ALARMAS: " << table_name);
         cmd << "9 0 }" << table_name << " TRange.\r";
     } else {
-        DEBUG_VERBOSE("📊 LEYENDO TABLA DE DATOS: " << table_name);
+        LOG_DEBUG("📊 LEYENDO TABLA DE DATOS: " << table_name);
         cmd << "9 0 }" << table_name << " TRange.\r";
     }
 
     string command = cmd.str();
-    DEBUG_VERBOSE("📊 LEYENDO TABLA DE DATOS: " << table_name);
-    DEBUG_VERBOSE("📋 Comando en bytes: ");
+    LOG_DEBUG("📊 LEYENDO TABLA DE DATOS: " << table_name);
+    LOG_DEBUG("📋 Comando en bytes: ");
     for (char c : command) {
-        DEBUG_VERBOSE("0x" << hex << (int)(unsigned char)c << " ");
+        LOG_DEBUG("0x" << hex << (int)(unsigned char)c << " ");
     }
-    DEBUG_VERBOSE(dec);
-    DEBUG_VERBOSE("🔍 TIMESTAMP: " << chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now().time_since_epoch()).count() << "ms");
+    LOG_DEBUG(dec);
+    LOG_DEBUG("🔍 TIMESTAMP: " << chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now().time_since_epoch()).count() << "ms");
 
     // 🔧 SOLUCIÓN: Limpiar buffer del socket antes de enviar comando
     flushSocketBuffer();
@@ -143,11 +143,11 @@ vector<float> PACControlClient::readFloatTable(const string &table_name,
         return {};
     }
     
-    DEBUG_VERBOSE("📋 DATOS BINARIOS TABLA (" << raw_data.size() << " bytes): ");
+    LOG_DEBUG("📋 DATOS BINARIOS TABLA (" << raw_data.size() << " bytes): ");
     for (size_t i = 0; i < raw_data.size(); i++) {
-        DEBUG_VERBOSE(hex << setfill('0') << setw(2) << (int)raw_data[i] << " ");
+        LOG_DEBUG(hex << setfill('0') << setw(2) << (int)raw_data[i] << " ");
     }
-    DEBUG_VERBOSE(dec);
+    LOG_DEBUG(dec);
     
     // Convertir bytes a floats (IEEE 754 little endian)
     vector<float> floats;
@@ -161,28 +161,28 @@ vector<float> PACControlClient::readFloatTable(const string &table_name,
         memcpy(&value, &raw_bits, 4);
         floats.push_back(value);
         
-        DEBUG_VERBOSE("📊 [" << (i/4) << "] Raw: " << hex << setfill('0') << setw(8) << raw_bits 
+        LOG_DEBUG("📊 [" << (i/4) << "] Raw: " << hex << setfill('0') << setw(8) << raw_bits 
                      << dec << " -> float: " << value);
     }
     
-    DEBUG_VERBOSE("📊 Total valores parseados: " << floats.size());
+    LOG_DEBUG("📊 Total valores parseados: " << floats.size());
     
     // Si el cache está habilitado, guardar los datos
     
     // Si el cache está habilitado, guardar los datos
     if (cache_enabled && !floats.empty()) {
         table_cache[cache_key] = {floats, chrono::steady_clock::now(), true};
-        DEBUG_VERBOSE("💾 DATOS GUARDADOS EN CACHE: " << table_name << " con " << floats.size() << " valores");
+        LOG_DEBUG("💾 DATOS GUARDADOS EN CACHE: " << table_name << " con " << floats.size() << " valores");
     }
 
     DEBUG_INFO("✓ Tabla " << table_name << " leída: " << floats.size() << " valores");
     for (size_t i = 0; i < floats.size(); i++)
     {
-        DEBUG_VERBOSE("  [" << (start_pos + i) << "] = " << floats[i]);
+        LOG_DEBUG("  [" << (start_pos + i) << "] = " << floats[i]);
     }
 
     return floats;
-    DEBUG_VERBOSE("📊 Total valores parseados: " << floats.size());
+    LOG_DEBUG("📊 Total valores parseados: " << floats.size());
 
     // Verificar consistencia de datos comparando con cache anterior
     auto prev_cache = table_cache.find(cache_key);
@@ -193,13 +193,13 @@ vector<float> PACControlClient::readFloatTable(const string &table_name,
                 float diff = abs(floats[i] - prev_cache->second.data[i]);
                 if (diff > 0.001f) { // Tolerancia de 0.001 para cambios significativos
                     values_changed = true;
-                    DEBUG_VERBOSE("🔄 CAMBIO DETECTADO en [" << (start_pos + i) << "]: " 
+                    LOG_DEBUG("🔄 CAMBIO DETECTADO en [" << (start_pos + i) << "]: " 
                          << prev_cache->second.data[i] << " -> " << floats[i] 
                          << " (diff: " << diff << ")");
                 }
             }
             if (!values_changed) {
-                DEBUG_VERBOSE("✅ VALORES ESTABLES: Sin cambios significativos en " << table_name);
+                LOG_DEBUG("✅ VALORES ESTABLES: Sin cambios significativos en " << table_name);
             }
         }
     }
@@ -214,7 +214,7 @@ vector<float> PACControlClient::readFloatTable(const string &table_name,
     DEBUG_INFO("✓ Tabla " << table_name << " leída: " << floats.size() << " valores");
     for (size_t i = 0; i < floats.size(); i++)
     {
-        DEBUG_VERBOSE("  [" << (start_pos + i) << "] = " << floats[i]);
+        LOG_DEBUG("  [" << (start_pos + i) << "] = " << floats[i]);
     }
 
     return floats;
@@ -394,7 +394,7 @@ vector<uint8_t> PACControlClient::receiveData(size_t expected_bytes)
     // CORRECCIÓN: El PAC envía 2 bytes de header + datos reales
     size_t total_expected = expected_bytes + 2;  // 2 bytes header + datos
     
-    DEBUG_VERBOSE("📥 Esperando " << total_expected << " bytes total (2 header + " << expected_bytes << " datos)");
+    LOG_DEBUG("📥 Esperando " << total_expected << " bytes total (2 header + " << expected_bytes << " datos)");
     
     buffer.resize(total_expected);
     size_t bytes_received = 0;
@@ -419,7 +419,7 @@ vector<uint8_t> PACControlClient::receiveData(size_t expected_bytes)
         if (result > 0)
         {
             bytes_received += result;
-            DEBUG_VERBOSE("📡 Recibidos " << result << " bytes, total: " << bytes_received << "/" << total_expected);
+            LOG_DEBUG("📡 Recibidos " << result << " bytes, total: " << bytes_received << "/" << total_expected);
         }
         else if (result == 0)
         {
@@ -441,22 +441,22 @@ vector<uint8_t> PACControlClient::receiveData(size_t expected_bytes)
     }
     
     // CORRECCIÓN: Mostrar header (2 bytes) y datos por separado
-    DEBUG_VERBOSE("📋 HEADER PAC (2 bytes): ");
+    LOG_DEBUG("📋 HEADER PAC (2 bytes): ");
     for (size_t i = 0; i < 2 && i < bytes_received; i++) {
-        DEBUG_VERBOSE(hex << setfill('0') << setw(2) << (int)buffer[i] << " ");
+        LOG_DEBUG(hex << setfill('0') << setw(2) << (int)buffer[i] << " ");
     }
-    DEBUG_VERBOSE(dec);
+    LOG_DEBUG(dec);
     
-    DEBUG_VERBOSE("📋 DATOS REALES (" << (bytes_received - 2) << " bytes): ");
+    LOG_DEBUG("📋 DATOS REALES (" << (bytes_received - 2) << " bytes): ");
     for (size_t i = 2; i < min(bytes_received, size_t(22)); i++) {
-        DEBUG_VERBOSE(hex << setfill('0') << setw(2) << (int)buffer[i] << " ");
+        LOG_DEBUG(hex << setfill('0') << setw(2) << (int)buffer[i] << " ");
     }
-    DEBUG_VERBOSE(dec);
+    LOG_DEBUG(dec);
     
     // CORRECCIÓN: Retornar solo los datos sin el header de 2 bytes
     if (bytes_received >= 2) {
         vector<uint8_t> data_only(buffer.begin() + 2, buffer.end());
-        DEBUG_VERBOSE("✅ Tabla válida: Retornando " << data_only.size() << " bytes de datos (sin header de 2 bytes)");
+        LOG_DEBUG("✅ Tabla válida: Retornando " << data_only.size() << " bytes de datos (sin header de 2 bytes)");
         return data_only;
     } else {
         DEBUG_INFO("❌ No hay suficientes datos para extraer header de 2 bytes");
@@ -933,7 +933,7 @@ vector<string> PACControlClient::getTasks()
     return {};
 }
 
-// CORRECCIÓN: Funciones auxiliares con DEBUG_VERBOSE
+// CORRECCIÓN: Funciones auxiliares con LOG_DEBUG
 string PACControlClient::cleanASCIINumber(const string& ascii_str)
 {
     string result;
@@ -942,7 +942,7 @@ string PACControlClient::cleanASCIINumber(const string& ascii_str)
     bool exponent_found = false;
     bool exponent_sign_found = false;
     
-    DEBUG_VERBOSE("🔍 LIMPIANDO NÚMERO ASCII: '" << ascii_str << "'");
+    LOG_DEBUG("🔍 LIMPIANDO NÚMERO ASCII: '" << ascii_str << "'");
     
     // Procesar cada caracter para extraer un número válido
     for (char c : ascii_str) {
@@ -983,11 +983,11 @@ string PACControlClient::cleanASCIINumber(const string& ascii_str)
         // Otros caracteres no válidos se ignoran
     }
     
-    DEBUG_VERBOSE("🔍 NÚMERO LIMPIO: '" << result << "'");
+    LOG_DEBUG("🔍 NÚMERO LIMPIO: '" << result << "'");
     
     // Validar que el resultado es un número válido
     if (result.empty() || result == "-" || result == "." || result == "e" || result == "E") {
-        DEBUG_VERBOSE("⚠️  NÚMERO INVÁLIDO después de limpiar: '" << result << "'");
+        LOG_DEBUG("⚠️  NÚMERO INVÁLIDO después de limpiar: '" << result << "'");
         return "0";
     }
     
@@ -1004,21 +1004,21 @@ float PACControlClient::convertStringToFloat(const string& str) {
         float value = std::stof(str);
         
         if (std::isnan(value) || std::isinf(value)) {
-            DEBUG_VERBOSE("⚠️  VALOR FLOAT INVÁLIDO: " << str << " -> " << value);
+            LOG_DEBUG("⚠️  VALOR FLOAT INVÁLIDO: " << str << " -> " << value);
             return 0.0f;
         }
         
-        DEBUG_VERBOSE("✅ CONVERSIÓN EXITOSA: '" << str << "' -> " << value);
+        LOG_DEBUG("✅ CONVERSIÓN EXITOSA: '" << str << "' -> " << value);
         return value;
         
     } catch (const std::invalid_argument& e) {
-        DEBUG_VERBOSE("❌ ERROR: Argumento inválido para conversión: '" << str << "' - " << e.what());
+        LOG_DEBUG("❌ ERROR: Argumento inválido para conversión: '" << str << "' - " << e.what());
         return 0.0f;
     } catch (const std::out_of_range& e) {
-        DEBUG_VERBOSE("❌ ERROR: Valor fuera de rango: '" << str << "' - " << e.what());
+        LOG_DEBUG("❌ ERROR: Valor fuera de rango: '" << str << "' - " << e.what());
         return 0.0f;
     } catch (const exception& e) {
-        DEBUG_VERBOSE("❌ ERROR: Excepción general en conversión: '" << str << "' - " << e.what());
+        LOG_DEBUG("❌ ERROR: Excepción general en conversión: '" << str << "' - " << e.what());
         return 0.0f;
     }
 }
@@ -1033,28 +1033,28 @@ int32_t PACControlClient::convertStringToInt32(const string& str) {
         double double_value = std::stod(str);
         
         if (double_value > INT32_MAX || double_value < INT32_MIN) {
-            DEBUG_VERBOSE("⚠️  VALOR FUERA DE RANGO INT32: " << str << " -> " << double_value);
+            LOG_DEBUG("⚠️  VALOR FUERA DE RANGO INT32: " << str << " -> " << double_value);
             return 0;
         }
         
         int32_t value = static_cast<int32_t>(double_value);
-        DEBUG_VERBOSE("✅ CONVERSIÓN INT32 EXITOSA: '" << str << "' -> " << value);
+        LOG_DEBUG("✅ CONVERSIÓN INT32 EXITOSA: '" << str << "' -> " << value);
         return value;
         
     } catch (const std::invalid_argument& e) {
-        DEBUG_VERBOSE("❌ ERROR: Argumento inválido para conversión int32: '" << str << "' - " << e.what());
+        LOG_DEBUG("❌ ERROR: Argumento inválido para conversión int32: '" << str << "' - " << e.what());
         return 0;
     } catch (const std::out_of_range& e) {
-        DEBUG_VERBOSE("❌ ERROR: Valor fuera de rango int32: '" << str << "' - " << e.what());
+        LOG_DEBUG("❌ ERROR: Valor fuera de rango int32: '" << str << "' - " << e.what());
         return 0;
     } catch (const exception& e) {
-        DEBUG_VERBOSE("❌ ERROR: Excepción general en conversión int32: '" << str << "' - " << e.what());
+        LOG_DEBUG("❌ ERROR: Excepción general en conversión int32: '" << str << "' - " << e.what());
         return 0;
     }
 }
 
 
-// CORRECCIÓN: Función readSingleFloatVariableByTag con DEBUG_VERBOSE
+// CORRECCIÓN: Función readSingleFloatVariableByTag con LOG_DEBUG
 float PACControlClient::readSingleFloatVariableByTag(const string& tag_name)
 {
     lock_guard<mutex> lock(comm_mutex);
@@ -1069,7 +1069,7 @@ float PACControlClient::readSingleFloatVariableByTag(const string& tag_name)
     // COMANDO CORRECTO confirmado por pruebas Python
     string command = "^" + tag_name + " @@ F.\r";
     
-    DEBUG_VERBOSE("📋 Enviando comando: '" << command.substr(0, command.length()-1) << "\\r'");
+    LOG_DEBUG("📋 Enviando comando: '" << command.substr(0, command.length()-1) << "\\r'");
 
     flushSocketBuffer();
     
@@ -1086,22 +1086,22 @@ float PACControlClient::readSingleFloatVariableByTag(const string& tag_name)
     }
 
     // 🔍 DIAGNÓSTICO: Mostrar datos RAW recibidos
-    DEBUG_VERBOSE("🔍 VARIABLE FLOAT RAW DATA (" << raw_data.size() << " bytes): ");
+    LOG_DEBUG("🔍 VARIABLE FLOAT RAW DATA (" << raw_data.size() << " bytes): ");
     for (size_t i = 0; i < raw_data.size(); i++) {
-        DEBUG_VERBOSE(hex << setfill('0') << setw(2) << (int)raw_data[i] << " ");
+        LOG_DEBUG(hex << setfill('0') << setw(2) << (int)raw_data[i] << " ");
     }
-    DEBUG_VERBOSE(dec);
+    LOG_DEBUG(dec);
 
     // Convertir bytes a string ASCII limpio
     string ascii_response = convertBytesToASCII(raw_data);
-    DEBUG_VERBOSE("🔍 ASCII RESPONSE: '" << ascii_response << "'");
+    LOG_DEBUG("🔍 ASCII RESPONSE: '" << ascii_response << "'");
     
     // Limpiar y extraer número (ahora con soporte correcto para notación científica)
     string clean_value = cleanASCIINumber(ascii_response);
-    DEBUG_VERBOSE("🔍 CLEAN VALUE: '" << clean_value << "'");
+    LOG_DEBUG("🔍 CLEAN VALUE: '" << clean_value << "'");
     
     if (clean_value.empty() || clean_value == "0") {
-        DEBUG_VERBOSE("⚠️  ADVERTENCIA: Valor limpio vacío o cero para " << tag_name);
+        LOG_DEBUG("⚠️  ADVERTENCIA: Valor limpio vacío o cero para " << tag_name);
         return 0.0f;
     }
     
@@ -1112,14 +1112,14 @@ float PACControlClient::readSingleFloatVariableByTag(const string& tag_name)
     
     // Mostrar también en notación científica si es un número grande
     if (abs(value) >= 1000) {
-        DEBUG_VERBOSE(" (científica: " << scientific << value << fixed << ")");
+        LOG_DEBUG(" (científica: " << scientific << value << fixed << ")");
     }
 
     return value;
 }
 
 
-// CORRECCIÓN: Función readSingleInt32VariableByTag con DEBUG_VERBOSE
+// CORRECCIÓN: Función readSingleInt32VariableByTag con LOG_DEBUG
 int32_t PACControlClient::readSingleInt32VariableByTag(const string& tag_name)
 {
     lock_guard<mutex> lock(comm_mutex);
@@ -1134,7 +1134,7 @@ int32_t PACControlClient::readSingleInt32VariableByTag(const string& tag_name)
     // COMANDO CORRECTO para int32 (sin F)
     string command = "^" + tag_name + " @@ .\r";
     
-    DEBUG_VERBOSE("📋 Enviando comando: '" << command.substr(0, command.length()-1) << "\\r'");
+    LOG_DEBUG("📋 Enviando comando: '" << command.substr(0, command.length()-1) << "\\r'");
 
     flushSocketBuffer();
     
@@ -1151,21 +1151,21 @@ int32_t PACControlClient::readSingleInt32VariableByTag(const string& tag_name)
     }
 
     // 🔍 DIAGNÓSTICO: Mostrar datos RAW recibidos
-    DEBUG_VERBOSE("🔍 VARIABLE INT32 RAW DATA (" << raw_data.size() << " bytes): ");
+    LOG_DEBUG("🔍 VARIABLE INT32 RAW DATA (" << raw_data.size() << " bytes): ");
     for (size_t i = 0; i < raw_data.size(); i++) {
-        DEBUG_VERBOSE(hex << setfill('0') << setw(2) << (int)raw_data[i] << " ");
+        LOG_DEBUG(hex << setfill('0') << setw(2) << (int)raw_data[i] << " ");
     }
-    DEBUG_VERBOSE(dec);
+    LOG_DEBUG(dec);
 
     // Convertir bytes a string ASCII limpio
     string ascii_response = convertBytesToASCII(raw_data);
-    DEBUG_VERBOSE("🔍 ASCII RESPONSE: '" << ascii_response << "'");
+    LOG_DEBUG("🔍 ASCII RESPONSE: '" << ascii_response << "'");
     
     string clean_value = cleanASCIINumber(ascii_response);
-    DEBUG_VERBOSE("🔍 CLEAN VALUE: '" << clean_value << "'");
+    LOG_DEBUG("🔍 CLEAN VALUE: '" << clean_value << "'");
     
     if (clean_value.empty() || clean_value == "0") {
-        DEBUG_VERBOSE("⚠️  ADVERTENCIA: Valor limpio vacío o cero para " << tag_name);
+        LOG_DEBUG("⚠️  ADVERTENCIA: Valor limpio vacío o cero para " << tag_name);
         return 0;
     }
     
@@ -1178,7 +1178,7 @@ int32_t PACControlClient::readSingleInt32VariableByTag(const string& tag_name)
     return value;
 }
 
-// CORRECCIÓN: Función receiveASCIIResponse con DEBUG_VERBOSE
+// CORRECCIÓN: Función receiveASCIIResponse con LOG_DEBUG
 vector<uint8_t> PACControlClient::receiveASCIIResponse()
 {
     vector<uint8_t> raw_data;
@@ -1187,14 +1187,14 @@ vector<uint8_t> PACControlClient::receiveASCIIResponse()
     auto start_time = chrono::steady_clock::now();
     const int timeout_ms = 3000; // 3 segundos timeout
 
-    DEBUG_VERBOSE("📋 Esperando respuesta ASCII (terminador: espacio 0x20)...");
+    LOG_DEBUG("📋 Esperando respuesta ASCII (terminador: espacio 0x20)...");
     
     while (true) {
         auto elapsed = chrono::duration_cast<chrono::milliseconds>(
             chrono::steady_clock::now() - start_time).count();
         
         if (elapsed > timeout_ms) {
-            DEBUG_VERBOSE("⏰ TIMEOUT recibiendo respuesta ASCII después de " << elapsed << "ms");
+            LOG_DEBUG("⏰ TIMEOUT recibiendo respuesta ASCII después de " << elapsed << "ms");
             break;
         }
         
@@ -1203,7 +1203,7 @@ vector<uint8_t> PACControlClient::receiveASCIIResponse()
         if (bytes == 1) {
             // CORRECCIÓN: Detectar terminador espacio 0x20
             if (static_cast<uint8_t>(byte) == 0x20) {
-                DEBUG_VERBOSE("📋 Terminador espacio (0x20) detectado - Fin de respuesta");
+                LOG_DEBUG("📋 Terminador espacio (0x20) detectado - Fin de respuesta");
                 break;
             }
             
@@ -1211,37 +1211,37 @@ vector<uint8_t> PACControlClient::receiveASCIIResponse()
             raw_data.push_back(static_cast<uint8_t>(byte));
             
             // Debug: mostrar cada byte recibido
-            DEBUG_VERBOSE("📡 Byte recibido: 0x" << hex << setfill('0') << setw(2) 
+            LOG_DEBUG("📡 Byte recibido: 0x" << hex << setfill('0') << setw(2) 
                  << (int)(uint8_t)byte << dec);
             if (byte >= 32 && byte <= 126) {
-                DEBUG_VERBOSE(" ('" << byte << "')");
+                LOG_DEBUG(" ('" << byte << "')");
             }
             
             // Protección contra respuestas muy largas
             if (raw_data.size() > 50) {
-                DEBUG_VERBOSE("⚠️  Respuesta muy larga (>50 bytes), cortando");
+                LOG_DEBUG("⚠️  Respuesta muy larga (>50 bytes), cortando");
                 break;
             }
             
         } else if (bytes == 0) {
-            DEBUG_VERBOSE("🔌 Conexión cerrada por el PAC");
+            LOG_DEBUG("🔌 Conexión cerrada por el PAC");
             connected = false;
             break;
         } else if (bytes < 0) {
-            DEBUG_VERBOSE("❌ Error en recv: errno=" << errno);
+            LOG_DEBUG("❌ Error en recv: errno=" << errno);
             connected = false;
             break;
         }
     }
     
-    DEBUG_VERBOSE("📋 Respuesta ASCII completa recibida: " << raw_data.size() << " bytes");
+    LOG_DEBUG("📋 Respuesta ASCII completa recibida: " << raw_data.size() << " bytes");
     
     // Mostrar datos completos en hex
-    DEBUG_VERBOSE("🔍 Datos hex: ");
+    LOG_DEBUG("🔍 Datos hex: ");
     for (uint8_t b : raw_data) {
-        DEBUG_VERBOSE(hex << setfill('0') << setw(2) << (int)b << " ");
+        LOG_DEBUG(hex << setfill('0') << setw(2) << (int)b << " ");
     }
-    DEBUG_VERBOSE(dec);
+    LOG_DEBUG(dec);
     
     return raw_data;
 }
@@ -1299,8 +1299,8 @@ bool PACControlClient::receiveWriteConfirmation()
         
         if (elapsed.count() > 1000) // Timeout 1 segundo
         {
-            DEBUG_VERBOSE("⚠️ TIMEOUT esperando confirmación de escritura después de " << elapsed.count() << "ms");
-            DEBUG_VERBOSE("📊 Recibidos " << bytes_received << " de 2 bytes");
+            LOG_DEBUG("⚠️ TIMEOUT esperando confirmación de escritura después de " << elapsed.count() << "ms");
+            LOG_DEBUG("📊 Recibidos " << bytes_received << " de 2 bytes");
             return false;
         }
         
@@ -1309,17 +1309,17 @@ bool PACControlClient::receiveWriteConfirmation()
         if (result > 0)
         {
             bytes_received += result;
-            DEBUG_VERBOSE("📡 Confirmación: recibidos " << result << " bytes, total: " << bytes_received << "/2");
+            LOG_DEBUG("📡 Confirmación: recibidos " << result << " bytes, total: " << bytes_received << "/2");
         }
         else if (result == 0)
         {
-            DEBUG_VERBOSE("🔌 Conexión cerrada por el servidor durante confirmación");
+            LOG_DEBUG("🔌 Conexión cerrada por el servidor durante confirmación");
             connected = false;
             return false;
         }
         else if (errno != EAGAIN && errno != EWOULDBLOCK)
         {
-            DEBUG_VERBOSE("❌ Error recibiendo confirmación: " << strerror(errno));
+            LOG_DEBUG("❌ Error recibiendo confirmación: " << strerror(errno));
             return false;
         }
         
@@ -1330,12 +1330,12 @@ bool PACControlClient::receiveWriteConfirmation()
     // Verificar si la respuesta es la confirmación esperada (00 00)
     if (bytes_received == 2 && response[0] == 0x00 && response[1] == 0x00)
     {
-        DEBUG_VERBOSE("✅ Confirmación de escritura exitosa: 00 00");
+        LOG_DEBUG("✅ Confirmación de escritura exitosa: 00 00");
         return true;
     }
     else
     {
-        DEBUG_VERBOSE("❌ Confirmación de escritura inválida - Esperado: 00 00, Recibido: " 
+        LOG_DEBUG("❌ Confirmación de escritura inválida - Esperado: 00 00, Recibido: " 
                      << hex << setfill('0') << setw(2) << (int)response[0] << " " 
                      << setw(2) << (int)response[1] << dec);
         return false;
@@ -1375,7 +1375,7 @@ bool PACControlClient::writeSingleFloatVariable(const std::string& variable_name
     std::string command = cmd.str();
 
     DEBUG_INFO("🔥 Escribiendo variable FLOAT individual: " << variable_name << " = " << value);
-    DEBUG_VERBOSE("📋 Comando: '" << command.substr(0, command.length()-1) << "\\r'");
+    LOG_DEBUG("📋 Comando: '" << command.substr(0, command.length()-1) << "\\r'");
 
     flushSocketBuffer();
 
@@ -1411,7 +1411,7 @@ bool PACControlClient::writeSingleInt32Variable(const std::string& variable_name
     std::string command = cmd.str();
 
     DEBUG_INFO("🔥 Escribiendo variable INT32 individual: " << variable_name << " = " << value);
-    DEBUG_VERBOSE("📋 Comando: '" << command.substr(0, command.length()-1) << "\\r'");
+    LOG_DEBUG("📋 Comando: '" << command.substr(0, command.length()-1) << "\\r'");
 
     flushSocketBuffer();
 
@@ -1446,7 +1446,7 @@ bool PACControlClient::writeFloatTableIndex(const std::string& table_name, int i
     std::string command = cmd.str();
 
     DEBUG_INFO("🔥 Escribiendo tabla FLOAT (FORMATO CORRECTO): " << table_name << "[" << index << "] = " << value);
-    DEBUG_VERBOSE("📋 Comando correcto: '" << command.substr(0, command.length()-1) << "\\r'");
+    LOG_DEBUG("📋 Comando correcto: '" << command.substr(0, command.length()-1) << "\\r'");
 
     flushSocketBuffer();
 
@@ -1466,7 +1466,7 @@ bool PACControlClient::writeFloatTableIndex(const std::string& table_name, int i
         
         // CORRECCIÓN: NO hacer verificación aquí por deadlock
         // La verificación se hará en la próxima lectura normal
-        DEBUG_VERBOSE("✅ Escritura completada, verificación en próxima lectura");
+        LOG_DEBUG("✅ Escritura completada, verificación en próxima lectura");
         
     } else {
         DEBUG_INFO("❌ Error en escritura tabla FLOAT: " << table_name << "[" << index << "]");
@@ -1490,7 +1490,7 @@ bool PACControlClient::writeInt32TableIndex(const std::string& table_name, int i
     std::string command = cmd.str();
 
     DEBUG_INFO("🔥 Escribiendo tabla INT32 (FORMATO CORRECTO): " << table_name << "[" << index << "] = " << value);
-    DEBUG_VERBOSE("📋 Comando correcto: '" << command.substr(0, command.length()-1) << "\\r'");
+    LOG_DEBUG("📋 Comando correcto: '" << command.substr(0, command.length()-1) << "\\r'");
 
     flushSocketBuffer();
 
@@ -1510,7 +1510,7 @@ bool PACControlClient::writeInt32TableIndex(const std::string& table_name, int i
         clearCacheForTable(table_name);
         
         // CORRECCIÓN: NO hacer verificación aquí por deadlock
-        DEBUG_VERBOSE("✅ Escritura int32 completada, verificación en próxima lectura");
+        LOG_DEBUG("✅ Escritura int32 completada, verificación en próxima lectura");
         
     } else {
         DEBUG_INFO("❌ Error en escritura tabla INT32: " << table_name << "[" << index << "]");
@@ -1523,7 +1523,7 @@ bool PACControlClient::writeInt32TableIndex(const std::string& table_name, int i
 void PACControlClient::scheduleWriteVerification(const std::string& table_name, int index, float expected_value) {
     // Esta función podría programar una verificación para después, pero por ahora
     // es mejor confiar en la confirmación 00 00 del PAC y la próxima lectura normal
-    DEBUG_VERBOSE("📋 Programando verificación para " << table_name << "[" << index << "] = " << expected_value);
+    LOG_DEBUG("📋 Programando verificación para " << table_name << "[" << index << "] = " << expected_value);
     
     // Marcar en cache que hay un valor pendiente de verificar
     string verify_key = table_name + "_verify_" + to_string(index);

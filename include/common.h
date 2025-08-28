@@ -1,21 +1,52 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-#include <open62541/server.h>
 #include <iostream>
-using namespace std;
+#include <iomanip>
+#include <sstream>
 
-// ============== MACROS DEBUG ==============
-// Macros para debug y logging compatibles con código original
-#define DEBUG_INFO(msg) do { std::cout << "[INFO] " << msg << std::endl; } while(0) // Activado temporalmente para diagnóstico
-#define DEBUG_VERBOSE(msg) do { } while(0)  // Desactivado para producción
-#define DEBUG_ERROR(msg) do { std::cerr << "[ERROR] " << msg << std::endl; } while(0)
-#define DEBUG_WARNING(msg) do { std::cout << "[WARNING] " << msg << std::endl; } while(0)
+// 🔧 CONFIGURACIÓN SIMPLE DE LOGGING
+#ifdef SILENT_MODE
+    #define LOG_ENABLED 0
+#elif defined(VERBOSE_DEBUG)
+    #define LOG_ENABLED 2
+#else
+    #define LOG_ENABLED 1
+#endif
 
-// ============== DECLARACIONES ==============
-void ServerInit();
-UA_StatusCode runServer();
-void cleanupAndExit();
-bool getPACConnectionStatus();
+// 🎨 COLORES PARA TERMINAL
+#define COLOR_RESET   "\033[0m"
+#define COLOR_RED     "\033[31m"
+#define COLOR_GREEN   "\033[32m"
+#define COLOR_YELLOW  "\033[33m"
+#define COLOR_BLUE    "\033[34m"
+#define COLOR_CYAN    "\033[36m"
+
+// 🔧 MACROS DE LOGGING SIMPLIFICADAS
+#define LOG_ERROR(msg) \
+    std::cout << COLOR_RED << "❌ [ERROR] " << COLOR_RESET << msg << std::endl;
+
+#define LOG_INFO(msg) \
+    if (LOG_ENABLED >= 1) { \
+        std::cout << COLOR_CYAN << "ℹ️  [INFO]  " << COLOR_RESET << msg << std::endl; \
+    }
+
+#define LOG_DEBUG(msg) \
+    if (LOG_ENABLED >= 2) { \
+        std::cout << COLOR_BLUE << "🔧 [DEBUG] " << COLOR_RESET << msg << std::endl; \
+    }
+
+#define LOG_WRITE(msg) \
+    if (LOG_ENABLED >= 1) { \
+        std::cout << COLOR_GREEN << "📝 [WRITE] " << COLOR_RESET << msg << std::endl; \
+    }
+
+#define LOG_PAC(msg) \
+    if (LOG_ENABLED >= 1) { \
+        std::cout << COLOR_YELLOW << "🔌 [PAC]   " << COLOR_RESET << msg << std::endl; \
+    }
+
+// 🔄 COMPATIBILIDAD CON DEBUG_INFO EXISTENTE
+#define DEBUG_INFO(msg) LOG_INFO(msg)
 
 #endif // COMMON_H

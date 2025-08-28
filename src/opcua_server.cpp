@@ -637,12 +637,10 @@ void updateData()
 
     while (running && server_running)
     {
-        // 🔍 VERIFICAR SI ES SEGURO HACER ACTUALIZACIONES
-        if (!WriteRegistrationManager::isSafeToUpdate()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            continue;  // Esperar hasta que sea seguro
-        }
-
+        // Solo log cuando inicia ciclo completo
+        LOG_DEBUG("Iniciando ciclo de actualización PAC");
+        
+        // 🔒 VERIFICAR SI ES SEGURO HACER ACTUALIZACIONES
         if (updating_internally) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
@@ -650,12 +648,10 @@ void updateData()
 
         if (pacClient && pacClient->isConnected())
         {
-            // 🧹 LIMPIAR ESCRITURAS EXPIRADAS
-            WriteRegistrationManager::cleanExpiredWrites();
+            DEBUG_INFO("🔄 Iniciando actualización de datos del PAC");
             
-            // ⚠️ Solo actualizar si NO hay escritura en progreso
+            // ⚠️ MARCAR ACTUALIZACIÓN EN PROGRESO
             updating_internally = true;
-            WriteRegistrationManager::markUpdateTime();
 
             // 🔒 ACTIVAR BANDERA DE ESCRITURA INTERNA DEL SERVIDOR
             server_writing_internally = true;
@@ -679,51 +675,19 @@ void updateData()
                 }
                 else
                 {
-                    // Variable simple
-                    simpleVars.push_back(&var);
+                    // Variable simple - SKIP por ahora (no hay función implementada)
+                    DEBUG_INFO("⚠️ Variable simple saltada: " << var.opcua_name << " (función no implementada)");
                 }
             }
 
-            // 1. Actualizar variables simples individuales
-            for (auto &var : simpleVars)
-            {
-                if (var->type == Variable::FLOAT)
-                {
-                    // Leer variable float simple
-                    float value = pacClient->readSingleFloatVariableByTag(var->pac_source);
-                    if (!isnan(value))
-                    {
-                        UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char *>(var->opcua_name.c_str()));
-
-                        UA_Variant uaValue;
-                        UA_Variant_init(&uaValue);
-                        UA_Variant_setScalar(&uaValue, &value, &UA_TYPES[UA_TYPES_FLOAT]);
-
-                        UA_Server_writeValue(server, nodeId, uaValue);
-                    }
-                }
-                else if (var->type == Variable::INT32)
-                {
-                    // Leer variable int32 simple
-                    int32_t value = pacClient->readSingleInt32VariableByTag(var->pac_source);
-                    UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char *>(var->opcua_name.c_str()));
-
-                    UA_Variant uaValue;
-                    UA_Variant_init(&uaValue);
-                    UA_Variant_setScalar(&uaValue, &value, &UA_TYPES[UA_TYPES_INT32]);
-
-                    UA_Server_writeValue(server, nodeId, uaValue);
-                }
-
-                // Pequeña pausa entre variables simples
-                this_thread::sleep_for(chrono::milliseconds(10));
-            }
-
-            // 2. Actualizar variables de tabla
+            // 📊 ACTUALIZAR VARIABLES DE TABLA ÚNICAMENTE
+            int tables_updated = 0;
             for (const auto &[tableName, vars] : tableVars)
             {
                 if (vars.empty())
                     continue;
+
+                DEBUG_INFO("📋 Actualizando tabla: " << tableName << " (" << vars.size() << " variables)");
 
                 // Determinar rango de índices
                 vector<int> indices;
@@ -737,11 +701,15 @@ void updateData()
                     }
                 }
 
-                if (indices.empty())
+                if (indices.empty()) {
+                    DEBUG_INFO("⚠️ Tabla sin índices válidos: " << tableName);
                     continue;
+                }
 
                 int minIndex = *min_element(indices.begin(), indices.end());
                 int maxIndex = *max_element(indices.begin(), indices.end());
+
+                DEBUG_INFO("🔢 Leyendo tabla " << tableName << " índices [" << minIndex << "-" << maxIndex << "]");
 
                 // Leer datos del PAC
                 bool isAlarmTable = tableName.find("TBL_DA_") == 0 ||
@@ -751,10 +719,18 @@ void updateData()
 
                 if (isAlarmTable)
                 {
-                    // Leer tabla de alarmas (int32)
+                    // 🚨 LEER TABLA DE ALARMAS (INT32)
                     vector<int32_t> values = pacClient->readInt32Table(tableName, minIndex, maxIndex);
 
+                    if (values.empty()) {
+                        DEBUG_INFO("❌ Error leyendo tabla INT32: " << tableName);
+                        continue;
+                    }
+
+                    DEBUG_INFO("✅ Leída tabla INT32: " << tableName << " (" << values.size() << " valores)");
+
                     // Actualizar variables
+                    int vars_updated = 0;
                     for (const auto &var : vars)
                     {
                         if (var->type != Variable::INT32)
@@ -773,16 +749,33 @@ void updateData()
                             int32_t newValue = values[arrayIndex];
                             UA_Variant_setScalar(&value, &newValue, &UA_TYPES[UA_TYPES_INT32]);
 
-                            UA_Server_writeValue(server, nodeId, value);
+                            UA_StatusCode result = UA_Server_writeValue(server, nodeId, value);
+                            
+                            if (result == UA_STATUSCODE_GOOD) {
+                                vars_updated++;
+                                DEBUG_INFO("📝 " << var->opcua_name << " = " << newValue);
+                            } else {
+                                DEBUG_INFO("❌ Error actualizando " << var->opcua_name);
+                            }
                         }
                     }
+                    
+                    DEBUG_INFO("✅ Tabla INT32 " << tableName << ": " << vars_updated << " variables actualizadas");
                 }
                 else
                 {
-                    // Leer tabla de valores (float)
+                    // 📊 LEER TABLA DE VALORES (FLOAT)
                     vector<float> values = pacClient->readFloatTable(tableName, minIndex, maxIndex);
 
+                    if (values.empty()) {
+                        DEBUG_INFO("❌ Error leyendo tabla FLOAT: " << tableName);
+                        continue;
+                    }
+
+                    DEBUG_INFO("✅ Leída tabla FLOAT: " << tableName << " (" << values.size() << " valores)");
+
                     // Actualizar variables
+                    int vars_updated = 0;
                     for (const auto &var : vars)
                     {
                         if (var->type != Variable::FLOAT)
@@ -801,44 +794,60 @@ void updateData()
                             float newValue = values[arrayIndex];
                             UA_Variant_setScalar(&value, &newValue, &UA_TYPES[UA_TYPES_FLOAT]);
 
-                            UA_Server_writeValue(server, nodeId, value);
+                            UA_StatusCode result = UA_Server_writeValue(server, nodeId, value);
+                            
+                            if (result == UA_STATUSCODE_GOOD) {
+                                vars_updated++;
+                                DEBUG_INFO("📝 " << var->opcua_name << " = " << newValue);
+                            } else {
+                                DEBUG_INFO("❌ Error actualizando " << var->opcua_name);
+                            }
                         }
                     }
+                    
+                    DEBUG_INFO("✅ Tabla FLOAT " << tableName << ": " << vars_updated << " variables actualizadas");
                 }
 
+                tables_updated++;
+                
                 // Pequeña pausa entre tablas
                 this_thread::sleep_for(chrono::milliseconds(50));
             }
 
-            // 🔓 DESACTIVAR BANDERA DE ESCRITURA INTERNA DEL SERVIDOR
+            // 🔓 DESACTIVAR BANDERAS
             server_writing_internally = false;
-            
-            // Desactivar bandera de actualización interna
             updating_internally = false;
+            
+            DEBUG_INFO("✅ Actualización completada: " << tables_updated << " tablas procesadas");
         }
         else
         {
-            // Sin conexión PAC - intentar reconectar cada 10 segundos
+            // 🔌 SIN CONEXIÓN PAC - INTENTAR RECONECTAR
             auto now = chrono::steady_clock::now();
             if (chrono::duration_cast<chrono::seconds>(now - lastReconnect).count() >= 10)
             {
+                DEBUG_INFO("🔄 Intentando reconectar al PAC: " << config.pac_ip << ":" << config.pac_port);
+                
                 pacClient.reset();
                 pacClient = make_unique<PACControlClient>(config.pac_ip, config.pac_port);
+                
                 if (pacClient->connect())
                 {
-                    // Reconectado
+                    DEBUG_INFO("✅ Reconectado al PAC exitosamente");
                 }
                 else
                 {
-                    // Fallo en reconexión
+                    DEBUG_INFO("❌ Fallo en reconexión al PAC");
                 }
                 lastReconnect = now;
             }
         }
 
-        // Esperar intervalo
+        // ⏱️ ESPERAR INTERVALO DE ACTUALIZACIÓN
         this_thread::sleep_for(chrono::milliseconds(config.update_interval_ms));
     }
+    
+    DEBUG_INFO("🛑 Hilo de actualización terminado");
 }
 
 // ============== FUNCIONES PRINCIPALES ==============

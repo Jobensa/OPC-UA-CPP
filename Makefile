@@ -6,102 +6,90 @@ SRC_DIR = src
 INC_DIR = include
 BUILD_DIR = build
 
-# Target principal
-TARGET = $(BUILD_DIR)/opcua_server
-
-# Fuentes para la versión de PRODUCCIÓN (simplificada y optimizada)
+# Fuentes principales
 PRODUCTION_SRCS = src/main.cpp src/opcua_server.cpp src/pac_control_client.cpp
 PRODUCTION_OBJS = $(BUILD_DIR)/main.o $(BUILD_DIR)/opcua_server.o $(BUILD_DIR)/pac_control_client.o
 
-# Fuentes para la versión DEMO (con datos simulados)
-DEMO_SRCS = src/main.cpp src/opcua_server.cpp src/pac_control_client_stub.cpp  
-DEMO_OBJS = $(BUILD_DIR)/main.o $(BUILD_DIR)/opcua_server.o $(BUILD_DIR)/pac_control_client_stub.o
-
-# Regla por defecto: versión de producción
+# Regla por defecto
 all: production
 
-# Flags de debug para GDB
-CXXFLAGS += -g -O0 -DDEBUG -Wall -Wextra
-
-# También puedes crear un target específico para debug:
-debug: CXXFLAGS += -g -O0 -DDEBUG -ggdb
-debug: all
-
-# Target para versión release (sin debug)
-release: CXXFLAGS += -O2 -DNDEBUG
-release: all
-
-# Versión PRODUCCIÓN (recomendada) - arquitectura simplificada con PAC real
+# 🚀 TARGET PRODUCCIÓN - Version estable con logs importantes
+production: CXXFLAGS += -O2 -DDEBUG=1
 production: $(BUILD_DIR)/opcua_server_production
 
 $(BUILD_DIR)/opcua_server_production: $(PRODUCTION_OBJS)
 	@mkdir -p $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
 	@echo "✅ Versión PRODUCCIÓN compilada: $@"
-	@echo "🚀 Arquitectura simplificada y optimizada para producción"
 
-# Versión DEMO (para pruebas) - datos simulados
-demo: $(BUILD_DIR)/opcua_server_demo
+# 🐛 TARGET DEBUG - Con información detallada
+production-debug: CXXFLAGS += -g -O0 -DDEBUG=1 -DVERBOSE_DEBUG -ggdb3
+production-debug: $(BUILD_DIR)/opcua_server_production_debug
 
-$(BUILD_DIR)/opcua_server_demo: $(DEMO_OBJS)
+$(BUILD_DIR)/opcua_server_production_debug: $(PRODUCTION_OBJS)
 	@mkdir -p $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
-	@echo "✅ Versión DEMO compilada: $@"
-	@echo "📝 Usa datos simulados para demostración"
+	@echo "🐛 Versión DEBUG compilada: $@"
+
+# 🔇 TARGET SILENCIOSO - Solo errores críticos
+silent: CXXFLAGS += -O2 -DSILENT_MODE
+silent: $(BUILD_DIR)/opcua_server_silent
+
+$(BUILD_DIR)/opcua_server_silent: $(PRODUCTION_OBJS)
+	@mkdir -p $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+	@echo "🔇 Versión SILENCIOSA compilada: $@"
 
 # Reglas de compilación
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
 	@mkdir -p $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+# 🚀 TARGETS DE EJECUCIÓN
+run: production
+	@echo "🚀 Ejecutando versión PRODUCCIÓN (Ctrl+C para detener)..."
+	./$(BUILD_DIR)/opcua_server_production
+
+run-debug: production-debug
+	@echo "🐛 Ejecutando versión DEBUG (Ctrl+C para detener)..."
+	./$(BUILD_DIR)/opcua_server_production_debug
+
+run-silent: silent
+	@echo "🔇 Ejecutando versión SILENCIOSA (Ctrl+C para detener)..."
+	./$(BUILD_DIR)/opcua_server_silent
+
+# 🧹 LIMPIEZA
 clean:
 	rm -rf $(BUILD_DIR)
 	@echo "🧹 Build directory cleaned"
 
 rebuild: clean production
+rebuild-debug: clean production-debug
 
-# Ejecutar versión de PRODUCCIÓN
-run: production
-	@echo "🚀 Ejecutando versión PRODUCCIÓN..."
-	@echo "📝 Arquitectura simplificada con cliente PAC real"
-	./$(BUILD_DIR)/opcua_server_production
+# 📊 ESTADO Y AYUDA
+status:
+	@echo "📊 ESTADO DEL PROYECTO:"
+	@ls -la $(BUILD_DIR)/ 2>/dev/null || echo "❌ No hay ejecutables compilados"
+	@echo ""
+	@echo "💡 Para compilar: make production"
+	@echo "💡 Para ejecutar: make run"
 
-# Ejecutar versión DEMO
-run-demo: demo
-	@echo "🚀 Ejecutando versión DEMO..."
-	@echo "📝 Esta versión genera datos simulados para demostración"
-	./$(BUILD_DIR)/opcua_server_demo
-
-# Ejecutar versión original
-run-original: original
-	@echo "🚀 Ejecutando versión ORIGINAL..."
-	@echo "📝 Arquitectura compleja - solo para referencia"
-	./$(BUILD_DIR)/opcua_server_original_exe
-
-# Aliases para compatibilidad hacia atrás
-simple: production
-	@echo "⚠️  NOTA: 'simple' ahora apunta a 'production'"
-	@echo "� Usa 'make production' o 'make demo' para ser más específico"
-
-# Ayuda
 help:
-	@echo "�️  OPCIONES DE COMPILACIÓN:"
+	@echo "🛠️  SERVIDOR OPC-UA PAC CONTROL"
 	@echo ""
-	@echo "  production     - Versión RECOMENDADA para producción (arquitectura simplificada)"
-	@echo "  demo          - Versión de demostración con datos simulados" 
+	@echo "📦 COMPILACIÓN:"
+	@echo "  make production       - Versión normal con logs importantes"
+	@echo "  make production-debug - Versión con debug detallado"
+	@echo "  make silent          - Versión solo errores críticos"
 	@echo ""
-	@echo "🚀 OPCIONES DE EJECUCIÓN:"
-	@echo ""
-	@echo "  run           - Ejecutar versión de producción"
-	@echo "  run-demo      - Ejecutar versión demo"
+	@echo "🚀 EJECUCIÓN:"
+	@echo "  make run             - Ejecutar versión normal"
+	@echo "  make run-debug       - Ejecutar versión debug"
+	@echo "  make run-silent      - Ejecutar versión silenciosa"
 	@echo ""
 	@echo "🧹 UTILIDADES:"
-	@echo ""
-	@echo "  clean         - Limpiar archivos compilados"
-	@echo "  rebuild       - Limpiar y recompilar producción"
-	@echo "  help          - Mostrar esta ayuda"
-	@echo ""
-	@echo "💡 SCRIPT DE CONVENIENCIA:"
-	@echo "  ./production.sh help - Script avanzado para gestión de producción"
+	@echo "  make clean           - Limpiar archivos compilados"
+	@echo "  make rebuild         - Limpiar y recompilar"
+	@echo "  make status          - Ver estado del proyecto"
 
-.PHONY: all production demo clean rebuild run run-demo help
+.PHONY: all production production-debug silent run run-debug run-silent clean rebuild rebuild-debug status help

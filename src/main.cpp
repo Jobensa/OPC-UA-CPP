@@ -11,16 +11,18 @@ using namespace std;
 extern std::atomic<bool> running;
 extern bool server_running;
 
+// Handler para Ctrl+C
 void signalHandler(int signal) {
-    running = false;
-    server_running = false;
-    this_thread::sleep_for(chrono::milliseconds(500));
+    if (signal == SIGINT || signal == SIGTERM) {
+        std::cout << "\n🛑 Señal de terminación recibida. Deteniendo servidor..." << std::endl;
+        running = false;
+    }
 }
 
 int main() {
     cout << "PAC to OPC-UA Server - PetroSantander SCADA" << endl;
 
-    // Configurar señales
+    // Registrar handler de señales
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
 
