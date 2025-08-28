@@ -248,141 +248,288 @@ static void writeCallback(UA_Server *server,
         DEBUG_INFO("⚠️ Escritura interna del servidor ignorada");
         return;
     }
-    
-    string nodeIdStr = string((char*)nodeId->identifier.string.data, 
-                             nodeId->identifier.string.length);
-    
-    // 🔍 VERIFICAR SI LA ESCRITURA ESTÁ PRE-REGISTRADA
-    bool is_registered = WriteRegistrationManager::isWriteRegistered(nodeIdStr);
-    bool is_critical = WriteRegistrationManager::isCriticalWrite(nodeIdStr);
-    
-    // 🔍 AUTO-DETECCIÓN DE ESCRITURAS CRÍTICAS
-    if (!is_registered && WriteRegistrationManager::isVariableCritical(nodeIdStr)) {
-        WriteRegistrationManager::registerCriticalWrite(nodeIdStr, "Auto-detectado crítico");
-        is_registered = true;
-        is_critical = true;
-        DEBUG_INFO("🔴 AUTO-REGISTRO CRÍTICO: " << nodeIdStr);
+
+    // 🔒 EVITAR PROCESAMIENTO DURANTE ACTUALIZACIONES
+    if (updating_internally) {
+        DEBUG_INFO("⚠️ Escritura bloqueada - actualización en progreso");
+        return;
     }
     
-    // Si NO está registrada, verificar si es actualización interna
-    if (!is_registered) {
-        // Verificaciones adicionales para detección automática
-        bool hasValidSession = (sessionId != nullptr && 
-                               sessionId->identifierType == UA_NODEIDTYPE_NUMERIC && 
-                               sessionId->identifier.numeric > 0);
-        
-        if (!hasValidSession) {
-            DEBUG_INFO("⚠️ Escritura NO registrada y sin sesión válida - IGNORADA: " << nodeIdStr);
-            return;
+    // ✅ VALIDACIONES BÁSICAS
+    if (!server || !nodeId || !data || !data->value.data) {
+        DEBUG_INFO("❌ writeCallback: Punteros inválidos");
+        return;
+    }
+
+    if (nodeId->identifierType != UA_NODEIDTYPE_STRING) {
+        DEBUG_INFO("❌ writeCallback: NodeId no es string");
+        return;
+    }
+
+    // 🔒 CONVERSIÓN SEGURA DE NODEID
+    std::string nodeIdStr;
+    try {
+        nodeIdStr = std::string((char*)nodeId->identifier.string.data, 
+                               nodeId->identifier.string.length);
+    } catch (...) {
+        DEBUG_INFO("❌ writeCallback: Error convirtiendo NodeId");
+        return;
+    }
+    
+    DEBUG_INFO("📝 ESCRITURA RECIBIDA: " << nodeIdStr);
+
+    // 🔍 BUSCAR VARIABLE EN CONFIGURACIÓN
+    Variable *var = nullptr;
+    for (auto &v : config.variables) {
+        if (v.opcua_name == nodeIdStr && v.has_node) {
+            var = &v;
+            break;
         }
-        
-        // Auto-registrar escrituras no críticas con sesión válida
-        WriteRegistrationManager::registerWrite(nodeIdStr, "Auto-detectado normal");
-        DEBUG_INFO("🟡 Auto-registro de escritura: " << nodeIdStr);
-        is_registered = true;
-        // Actualizar el estado crítico después del registro
-        is_critical = WriteRegistrationManager::isCriticalWrite(nodeIdStr);
     }
-    
-    // 🔴 PROCESAR ESCRITURA REGISTRADA
-    string write_info = WriteRegistrationManager::getWriteInfo(nodeIdStr);
-    DEBUG_INFO("✍️ PROCESANDO ESCRITURA: " << nodeIdStr 
-              << " (Crítica: " << (is_critical ? "SÍ" : "NO") 
-              << ", Info: " << write_info << ")");
-    
-    // 🔒 BLOQUEAR ACTUALIZACIONES DURANTE ESCRITURA CRÍTICA
-    if (is_critical) {
-        updating_internally = true;  // Bloqueo total para escrituras críticas
-        DEBUG_INFO("🔴 MODO CRÍTICO ACTIVADO - Actualizaciones bloqueadas");
+
+    if (!var) {
+        DEBUG_INFO("❌ Variable no encontrada: " << nodeIdStr);
+        return;
     }
-    
-    // ===== PROCESAMIENTO DE LA ESCRITURA =====
+
+    if (!var->writable) {
+        DEBUG_INFO("❌ Variable no escribible: " << nodeIdStr);
+        return;
+    }
+
+    // 🔒 VERIFICAR CONEXIÓN PAC
+    if (!pacClient || !pacClient->isConnected()) {
+        DEBUG_INFO("❌ PAC no conectado");
+        return;
+    }
+
+    DEBUG_INFO("✅ Procesando escritura para: " << var->opcua_name << " (PAC: " << var->pac_source << ")");
+
+    // 🎯 PROCESAR ESCRITURA SEGÚN TIPO
     bool write_success = false;
-    
-    // Validaciones previas
-    if (nodeId->identifierType == UA_NODEIDTYPE_STRING && 
-        pacClient && pacClient->isConnected()) {
-        
-        // Buscar variable
-        Variable *var = nullptr;
-        for (auto &v : config.variables) {
-            if (v.opcua_name == nodeIdStr) {
-                var = &v;
-                break;
-            }
-        }
 
-        if (var && var->writable) {
-            // Escribir al PAC según el tipo de variable
-            if (var->type == Variable::FLOAT && data->value.type == &UA_TYPES[UA_TYPES_FLOAT]) {
-                float value = *(UA_Float *)data->value.data;
-                DEBUG_INFO("🔧 Escribiendo FLOAT: " << value << " a variable: " << var->opcua_name << " (PAC source: " << var->pac_source << ")");
+    if (var->type == Variable::FLOAT) {
+        // **PROCESAR FLOAT CON GESTIÓN DE MEMORIA SEGURA**
+        float written_value = 0.0f;
+        bool value_extracted = false;
 
-                // Verificar si es variable de tabla o simple
-                size_t pos = var->pac_source.find(':');
-                if (pos != string::npos) {
-                    // Variable de tabla con índice específico
-                    string table = var->pac_source.substr(0, pos);
-                    int index = stoi(var->pac_source.substr(pos + 1));
-                    DEBUG_INFO("📝 Escribiendo a tabla: " << table << " índice: " << index << " valor: " << value);
-                    write_success = pacClient->writeFloatTableIndex(table, index, value);
-                } else {
-                    // Variable simple individual
-                    DEBUG_INFO("📝 Escribiendo variable simple: " << var->pac_source << " valor: " << value);
-                    write_success = pacClient->writeSingleFloatVariable(var->pac_source, value);
-                }
-                DEBUG_INFO("✅ Resultado escritura FLOAT: " << (write_success ? "ÉXITO" : "FALLO"));
+        try {
+            if (data->value.type == &UA_TYPES[UA_TYPES_FLOAT]) {
+                // ✅ Valor correcto como Float
+                written_value = *(static_cast<const UA_Float*>(data->value.data));
+                value_extracted = true;
+                DEBUG_INFO("✅ Recibido Float: " << written_value);
                 
-            } else if (var->type == Variable::INT32 && data->value.type == &UA_TYPES[UA_TYPES_INT32]) {
-                int32_t value = *(UA_Int32 *)data->value.data;
-                DEBUG_INFO("🔧 Escribiendo INT32: " << value << " a variable: " << var->opcua_name << " (PAC source: " << var->pac_source << ")");
-
-                // Verificar si es variable de tabla o simple
-                size_t pos = var->pac_source.find(':');
-                if (pos != string::npos) {
-                    // Variable de tabla con índice específico
-                    string table = var->pac_source.substr(0, pos);
-                    int index = stoi(var->pac_source.substr(pos + 1));
-                    DEBUG_INFO("📝 Escribiendo a tabla INT32: " << table << " índice: " << index << " valor: " << value);
-                    write_success = pacClient->writeInt32TableIndex(table, index, value);
+            } else if (data->value.type == &UA_TYPES[UA_TYPES_STRING]) {
+                // 🔄 CONVERSIÓN String → Float SEGURA
+                const UA_String *ua_string = static_cast<const UA_String*>(data->value.data);
+                if (ua_string && ua_string->data && ua_string->length > 0 && ua_string->length < 100) {
+                    // Crear copia segura del string
+                    std::vector<char> buffer(ua_string->length + 1, 0);
+                    std::memcpy(buffer.data(), ua_string->data, ua_string->length);
+                    
+                    std::string string_value(buffer.data());
+                    written_value = std::stof(string_value);
+                    value_extracted = true;
+                    DEBUG_INFO("🔄 String→Float: '" << string_value << "' → " << written_value);
                 } else {
-                    // Variable simple individual
-                    DEBUG_INFO("📝 Escribiendo variable simple INT32: " << var->pac_source << " valor: " << value);
-                    write_success = pacClient->writeSingleInt32Variable(var->pac_source, value);
+                    DEBUG_INFO("❌ String inválido o muy largo");
+                    return;
                 }
-                DEBUG_INFO("✅ Resultado escritura INT32: " << (write_success ? "ÉXITO" : "FALLO"));
+                
+            } else if (data->value.type == &UA_TYPES[UA_TYPES_DOUBLE]) {
+                // 🔄 Double → Float
+                double double_value = *(static_cast<const UA_Double*>(data->value.data));
+                written_value = static_cast<float>(double_value);
+                value_extracted = true;
+                DEBUG_INFO("🔄 Double→Float: " << double_value << " → " << written_value);
                 
             } else {
-                DEBUG_INFO("❌ Tipo de datos incompatible - Variable tipo: " << (var->type == Variable::FLOAT ? "FLOAT" : "INT32") << ", Data tipo: " << data->value.type->typeName);
+                DEBUG_INFO("❌ Tipo no soportado para Float: " << 
+                          (data->value.type && data->value.type->typeName ? 
+                           data->value.type->typeName : "NULL"));
+                return;
             }
-        } else {
-            DEBUG_INFO("❌ Variable no escribible: " << nodeIdStr);
+
+        } catch (const std::exception& e) {
+            DEBUG_INFO("❌ Error extrayendo valor Float: " << e.what());
+            return;
+        } catch (...) {
+            DEBUG_INFO("❌ Error desconocido extrayendo valor Float");
+            return;
         }
+
+        if (value_extracted) {
+            // 🎯 ESCRIBIR AL PAC
+            try {
+                size_t pos = var->pac_source.find(':');
+                if (pos != std::string::npos) {
+                    // Variable de tabla: "TBL_EJEMPLO:3"
+                    std::string table = var->pac_source.substr(0, pos);
+                    int index = std::stoi(var->pac_source.substr(pos + 1));
+                    
+                    DEBUG_INFO("📝 Escribiendo tabla Float: " << table << "[" << index << "] = " << written_value);
+                    write_success = pacClient->writeFloatTableIndex(table, index, written_value);
+                    
+                } else {
+                    // Variable simple: "VARIABLE_NAME"
+                    DEBUG_INFO("📝 Escribiendo variable Float: " << var->pac_source << " = " << written_value);
+                    write_success = pacClient->writeSingleFloatVariable(var->pac_source, written_value);
+                }
+
+                // 🔄 ACTUALIZAR NODO OPC-UA inmediatamente con tipo correcto - VERSIÓN SEGURA
+                if (write_success) {
+                    // Marcar que vamos a escribir internamente
+                    server_writing_internally = true;
+                    
+                    try {
+                        // Crear NodeId copia
+                        UA_NodeId updateNodeId = UA_NODEID_STRING(1, const_cast<char*>(var->opcua_name.c_str()));
+                        
+                        // Crear variant con gestión de memoria automática
+                        UA_Variant corrected_value;
+                        UA_Variant_init(&corrected_value);
+                        
+                        // Crear copia del valor float
+                        float *value_copy = static_cast<float*>(UA_malloc(sizeof(float)));
+                        if (value_copy) {
+                            *value_copy = written_value;
+                            
+                            // Asignar al variant sin copy (transfer ownership)
+                            UA_Variant_setScalar(&corrected_value, value_copy, &UA_TYPES[UA_TYPES_FLOAT]);
+                            
+                            // Escribir al servidor
+                            UA_StatusCode update_result = UA_Server_writeValue(server, updateNodeId, corrected_value);
+                            
+                            // Limpiar variant (libera automáticamente value_copy)
+                            UA_Variant_clear(&corrected_value);
+                            
+                            if (update_result == UA_STATUSCODE_GOOD) {
+                                DEBUG_INFO("✅ Nodo Float actualizado: " << written_value);
+                            } else {
+                                DEBUG_INFO("⚠️ Error actualizando nodo Float: " << update_result);
+                            }
+                        } else {
+                            DEBUG_INFO("❌ Error asignando memoria para actualización");
+                        }
+                        
+                    } catch (const std::exception& e) {
+                        DEBUG_INFO("❌ Excepción actualizando nodo: " << e.what());
+                    } catch (...) {
+                        DEBUG_INFO("❌ Excepción desconocida actualizando nodo");
+                    }
+                    
+                    // Desmarcar escritura interna
+                    server_writing_internally = false;
+                }
+
+            } catch (const std::exception& e) {
+                DEBUG_INFO("❌ Error escribiendo Float al PAC: " << e.what());
+                write_success = false;
+            } catch (...) {
+                DEBUG_INFO("❌ Error desconocido escribiendo Float al PAC");
+                write_success = false;
+            }
+        }
+
+    } else if (var->type == Variable::INT32) {
+        // **PROCESAR INT32 CON GESTIÓN DE MEMORIA SEGURA**
+        int32_t written_value = 0;
+        bool value_extracted = false;
+
+        try {
+            if (data->value.type == &UA_TYPES[UA_TYPES_INT32]) {
+                written_value = *(static_cast<const UA_Int32*>(data->value.data));
+                value_extracted = true;
+                DEBUG_INFO("✅ Recibido Int32: " << written_value);
+                
+            } else if (data->value.type == &UA_TYPES[UA_TYPES_STRING]) {
+                const UA_String *ua_string = static_cast<const UA_String*>(data->value.data);
+                if (ua_string && ua_string->data && ua_string->length > 0 && ua_string->length < 100) {
+                    std::vector<char> buffer(ua_string->length + 1, 0);
+                    std::memcpy(buffer.data(), ua_string->data, ua_string->length);
+                    
+                    std::string string_value(buffer.data());
+                    written_value = std::stoi(string_value);
+                    value_extracted = true;
+                    DEBUG_INFO("🔄 String→Int32: '" << string_value << "' → " << written_value);
+                }
+                
+            } else if (data->value.type == &UA_TYPES[UA_TYPES_FLOAT]) {
+                float float_value = *(static_cast<const UA_Float*>(data->value.data));
+                written_value = static_cast<int32_t>(float_value);
+                value_extracted = true;
+                DEBUG_INFO("🔄 Float→Int32: " << float_value << " → " << written_value);
+            }
+
+        } catch (const std::exception& e) {
+            DEBUG_INFO("❌ Error extrayendo valor Int32: " << e.what());
+            return;
+        } catch (...) {
+            DEBUG_INFO("❌ Error desconocido extrayendo valor Int32");
+            return;
+        }
+
+        if (value_extracted) {
+            try {
+                size_t pos = var->pac_source.find(':');
+                if (pos != std::string::npos) {
+                    std::string table = var->pac_source.substr(0, pos);
+                    int index = std::stoi(var->pac_source.substr(pos + 1));
+                    
+                    DEBUG_INFO("📝 Escribiendo tabla Int32: " << table << "[" << index << "] = " << written_value);
+                    write_success = pacClient->writeInt32TableIndex(table, index, written_value);
+                    
+                } else {
+                    DEBUG_INFO("📝 Escribiendo variable Int32: " << var->pac_source << " = " << written_value);
+                    write_success = pacClient->writeSingleInt32Variable(var->pac_source, written_value);
+                }
+
+                // Actualizar nodo OPC-UA - versión segura
+                if (write_success) {
+                    server_writing_internally = true;
+                    
+                    try {
+                        UA_NodeId updateNodeId = UA_NODEID_STRING(1, const_cast<char*>(var->opcua_name.c_str()));
+                        
+                        UA_Variant corrected_value;
+                        UA_Variant_init(&corrected_value);
+                        
+                        int32_t *value_copy = static_cast<int32_t*>(UA_malloc(sizeof(int32_t)));
+                        if (value_copy) {
+                            *value_copy = written_value;
+                            UA_Variant_setScalar(&corrected_value, value_copy, &UA_TYPES[UA_TYPES_INT32]);
+                            
+                            UA_Server_writeValue(server, updateNodeId, corrected_value);
+                            UA_Variant_clear(&corrected_value);
+                        }
+                        
+                    } catch (...) {
+                        DEBUG_INFO("❌ Error actualizando nodo Int32");
+                    }
+                    
+                    server_writing_internally = false;
+                }
+
+            } catch (const std::exception& e) {
+                DEBUG_INFO("❌ Error escribiendo Int32 al PAC: " << e.what());
+                write_success = false;
+            } catch (...) {
+                DEBUG_INFO("❌ Error desconocido escribiendo Int32 al PAC");
+                write_success = false;
+            }
+        }
+
     } else {
-        if (nodeId->identifierType != UA_NODEIDTYPE_STRING) {
-            DEBUG_INFO("❌ WRITE BLOQUEADO: nodeId no es string");
-        } else {
-            DEBUG_INFO("❌ Sin conexión PAC");
-        }
+        DEBUG_INFO("❌ Tipo de variable no soportado");
+        return;
     }
 
-    // ✅ CONSUMIR LA ESCRITURA DESPUÉS DE PROCESARLA (MOVIDO AQUÍ)
-    WriteRegistrationManager::consumeWrite(nodeIdStr);
-
-    // 🔓 RESTAURAR ACTUALIZACIONES DESPUÉS DE ESCRITURA CRÍTICA
-    if (is_critical) {
-        if (write_success) {
-            DEBUG_INFO("🎯 ESCRITURA CRÍTICA COMPLETADA EXITOSAMENTE: " << nodeIdStr);
-            // Pausa más larga para escrituras exitosas para asegurar persistencia
-            std::this_thread::sleep_for(std::chrono::milliseconds(300));
-        } else {
-            DEBUG_INFO("❌ ESCRITURA CRÍTICA FALLÓ: " << nodeIdStr);
-            // Pausa corta para escrituras fallidas
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-        
-        updating_internally = false;
-        DEBUG_INFO("🔴 MODO CRÍTICO DESACTIVADO - Actualizaciones restauradas");
+    // ✅ RESULTADO FINAL
+    if (write_success) {
+        DEBUG_INFO("✅ ESCRITURA EXITOSA: " << var->opcua_name << " al PAC");
+    } else {
+        DEBUG_INFO("❌ ESCRITURA FALLÓ: " << var->opcua_name);
     }
 }
 
@@ -583,7 +730,7 @@ void updateData()
                 for (const auto &var : vars)
                 {
                     size_t pos = var->pac_source.find(':');
-                    if (pos != string::npos)
+                    if (pos != std::string::npos)
                     {
                         int index = stoi(var->pac_source.substr(pos + 1));
                         indices.push_back(index);
