@@ -145,6 +145,7 @@ bool loadConfig(const string& configFile)
         config.api_tags.clear();  // Asegurar que api_tags esté limpia
         config.simple_variables.clear();
         config.variables.clear();
+        config.batch_tags.clear();  
 
         // Cargar TAGs tradicionales
         if (configJson.contains("tbL_tags"))
@@ -197,6 +198,23 @@ bool loadConfig(const string& configFile)
                 config.api_tags.push_back(apiTag);
             }
             cout << "✓ Cargados " << config.api_tags.size() << " API_tags" << endl;
+        }
+
+        if (configJson.contains("tbl_batch")   )
+        {
+            BatchTag batchTag;
+
+            for (auto &&batchJson : configJson["tbl_batch"]    )
+            {
+                batchTag.name = batchJson.value("name", "");
+                batchTag.value_table = batchJson.value("value_table", "");
+                for (const auto &var : batchJson["variables"]   )
+                {
+                    batchTag.variables.push_back(var);
+                
+                }
+                config.batch_tags.push_back(batchTag);
+            }
         }
 
         // Cargar variables simples individuales
@@ -325,6 +343,33 @@ void processConfigIntoVariables()
 
         config.variables.push_back(var);
         LOG_DEBUG("  📌 " << var.opcua_name << " → " << var.pac_source << (var.writable ? " (R/W)" : " (R)"));
+    }
+
+    for(const auto &batchTag : config.batch_tags) 
+    {
+        LOG_DEBUG("🏷️ Procesando BATCH TAG: " << batchTag.name);
+        
+        for (size_t i = 0; i < batchTag.variables.size(); i++) 
+        {
+            Variable var;
+            var.opcua_name = batchTag.name + "." + batchTag.variables[i];  // "BATCH_B1.IV"
+            var.tag_name = batchTag.name;  // "BATCH_B1"
+            var.var_name = batchTag.variables[i];  // "IV"
+            var.pac_source = batchTag.value_table + ":" + to_string(i);  // "TBL_BATCH_B1:0"
+            var.type = Variable::FLOAT;  // Asumir FLOAT para BATCH tags
+            var.writable = true;  // Asumir escribible para BATCH tags
+            var.has_node = false;
+            
+            // Campos específicos de BATCH
+            var.api_group = batchTag.name;
+            var.variable_name = batchTag.variables[i];
+            var.table_index = i;
+            
+            config.variables.push_back(var);
+            LOG_DEBUG("  🏷️ " << var.opcua_name << " → " << var.pac_source << " (R/W)");
+        }
+        
+        LOG_INFO("✅ BATCH " << batchTag.name << ": " << batchTag.variables.size() << " variables creadas");
     }
     
     LOG_INFO("✅ Procesamiento completado: " << config.variables.size() << " variables totales");
@@ -1091,6 +1136,17 @@ UA_StatusCode runServer() {
     }
 }
 
+void shutdownServer()
+{
+    if (server_running) {
+        LOG_INFO("🛑 Deteniendo servidor OPC-UA...");
+        server_running = false;
+        server_running_flag = false;
+    } else {
+        LOG_INFO("⚠️ Servidor ya está detenido");
+    }   
+}
+
 bool getPACConnectionStatus()
 {
     return pacClient && pacClient->isConnected();
@@ -1131,7 +1187,8 @@ void cleanupServer() {
         config.tags.clear();
         config.api_tags.clear();
         config.simple_variables.clear();
-        
+        config.batch_tags.clear();
+
         LOG_INFO("✅ Recursos liberados correctamente");
         
     } catch (const std::exception& e) {

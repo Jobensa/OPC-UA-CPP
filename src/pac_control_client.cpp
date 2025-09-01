@@ -108,10 +108,10 @@ vector<float> PACControlClient::readFloatTable(const string &table_name,
     // El PAC siempre devuelve la tabla completa independientemente del mapeo JSON
     if (table_name.find("TBL_DA_") != string::npos) {
         LOG_DEBUG("🚨 LEYENDO TABLA DE ALARMAS: " << table_name);
-        cmd << "9 0 }" << table_name << " TRange.\r";
+        cmd << end_pos << " " << start_pos << " }" << table_name << " TRange.\r";
     } else {
         LOG_DEBUG("📊 LEYENDO TABLA DE DATOS: " << table_name);
-        cmd << "9 0 }" << table_name << " TRange.\r";
+        cmd << end_pos << " " << start_pos << " }" << table_name << " TRange.\r";
     }
 
     string command = cmd.str();
@@ -134,7 +134,7 @@ vector<float> PACControlClient::readFloatTable(const string &table_name,
 
     // 🔧 SOLUCIÓN: Las tablas responden en BINARIO con header 00 00
     // A diferencia de variables simples que responden en ASCII terminado en 0x20
-    size_t expected_bytes = 40; // 10 floats × 4 bytes = 40 bytes de datos
+    size_t expected_bytes = 4 +end_pos * 4; // 10 floats × 4 bytes = 40 bytes de datos
 
     vector<uint8_t> raw_data = receiveData(expected_bytes);
     if (raw_data.empty())
@@ -259,9 +259,9 @@ vector<int32_t> PACControlClient::readInt32Table(const string &table_name,
     // Detectar tipo de tabla y usar comando apropiado
     if (table_name.find("TBL_DA_") != string::npos) {
         // Para alarmas, usar mismo formato que funciona para floats
-        cmd << "9 0 }" << table_name << " TRange.\r";
+        cmd << end_pos << " " << start_pos << " }" << table_name << " TRange.\r";
     } else {
-        cmd << "9 0 }" << table_name << " TRange.\r";
+        cmd << end_pos << " " << start_pos << " }" << table_name << " TRange.\r";
     }
 
     string command = cmd.str();
@@ -274,7 +274,7 @@ vector<int32_t> PACControlClient::readInt32Table(const string &table_name,
 
     // CORRECCIÓN: El PAC siempre envía la tabla completa para alarmas (20 bytes datos + 2 header = 22 total)
     // Para tablas de alarmas (int32): 5 valores × 4 bytes = 20 bytes
-    size_t expected_bytes = 20; // Siempre 20 bytes de datos (5 int32 × 4 bytes)
+    size_t expected_bytes = 4 + end_pos * 4; // Siempre 20 bytes de datos (5 int32 × 4 bytes)
 
     vector<uint8_t> raw_data = receiveData(expected_bytes);
     if (raw_data.empty())

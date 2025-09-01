@@ -380,7 +380,7 @@
         "Color"
       ]
     },
-    {
+     {
       "name": "TT_11004",
       "value_table": "TBL_TT_11004",
       "alarm_table": "TBL_TA_11004",
@@ -915,6 +915,23 @@
         "Volumen_Bruto",
         "Volumen_Neto_STD"
       ]
+    }    
+  ],
+  
+  "tbl_pid": [
+    
+    {
+      "name": "FIC_11001",
+      "value_table": "TBL_FIC_11001",
+      "variables": [
+        "PV",
+        "SP",
+        "CV",        
+        "KP",
+        "KI",
+        "KD",
+        "AUTO_MAN"
+      ]
     }
-  ]
+  ] 
 }

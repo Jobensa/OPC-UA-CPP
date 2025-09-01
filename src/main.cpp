@@ -17,6 +17,7 @@ void signalHandler(int signal) {
         std::cout << "\n🛑 Señal de terminación recibida. Deteniendo servidor..." << std::endl;
         running = false;
         server_running = false;
+        shutdownServer();
     }
 }
 

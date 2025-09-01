@@ -25,7 +25,7 @@
       "name": "(gdb) Iniciar",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/build/opcua_server_production",
+      "program": "${workspaceFolder}/build/opcua_server_production_debug",
       "args": [],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
