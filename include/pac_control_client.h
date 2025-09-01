@@ -140,7 +140,7 @@ public:
     
     // Lectura de tablas completas
     vector<int32_t> readInt32Table(const string& table_name, int start_pos = 0, int end_pos = 9);
-    
+    string readStringVariable(const string& variable_name);
     // Escritura de variables (float e int32)
     bool writeFloatVariable(const string& table_name, int index, float value);
     bool writeInt32Variable(const string& table_name, int index, int32_t value);

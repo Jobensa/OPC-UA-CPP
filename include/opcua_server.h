@@ -3,65 +3,52 @@
 
 #include "common.h"
 #include <open62541/server.h>
-#include <vector>
-#include <string>
 #include <memory>
-#include <nlohmann/json.hpp>
 #include <atomic>
 #include <mutex>
 #include <map>
 
+using namespace std;
 // Forward declarations
 class PACControlClient;
 
-// ============== ESTRUCTURAS SIMPLIFICADAS ==============
+// ============== SOLO DECLARACIONES DE FUNCIONES ==============
 
-// Variable simple unificada
-struct Variable {
-    std::string opcua_name;      // Nombre completo en OPC-UA (ej: "TT_11001.PV")
-    std::string tag_name;        // Nombre del TAG (ej: "TT_11001")
-    std::string var_name;        // Nombre de variable (ej: "PV")
-    std::string pac_source;      // Fuente en PAC: tabla+índice o tag directo
-    enum Type { FLOAT, INT32, SINGLE_FLOAT, SINGLE_INT32 } type;
-    bool writable = false;       // Si se puede escribir
-    bool has_node = false;       // Si ya se creó el nodo OPC-UA
-};
-
-// Configuración del TAG
-struct Tag {
-    std::string name;
-    std::string value_table;
-    std::string alarm_table;
-    std::vector<std::string> variables;
-    std::vector<std::string> alarms;
-};
-
-// Configuración simplificada
-struct Config {
-    std::string pac_ip = "192.168.1.30";
-    int pac_port = 22001;
-    int opcua_port = 4840;
-    int update_interval_ms = 2000;
-    std::string server_name = "PAC Control SCADA Server";
-    std::vector<Tag> tags;
-    std::vector<Variable> variables;
-};
-
-// ============== FUNCIONES PRINCIPALES ==============
+// Variables globales extern (definidas en opcua_server.cpp)
+extern std::atomic<bool> running;
+extern std::atomic<bool> server_running;
+extern std::atomic<bool> updating_internally;
+extern std::atomic<bool> server_writing_internally;
 
 // Funciones del ciclo de vida del servidor
-void ServerInit();
+bool ServerInit();
 UA_StatusCode runServer();
-void cleanupAndExit();
-bool getPACConnectionStatus();
+void shutdownServer();
+void cleanupServer();  // ✅ Asegurar que esté declarada
+bool isServerRunning();
+void runServerIteration();
 
 // Funciones de configuración y datos
-bool loadConfig();
+bool loadConfig(const string& configFile);
+void processConfigIntoVariables();  // 🆕 NUEVA DECLARACIÓN
 void createNodes();
 void updateData();
+
+
+// 🆕 Funciones específicas para procesar diferentes tipos
+void processSimpleVariables();
+void processTBLTags();
+void processAPITags();  // Nueva para TBL_tags_api
 
 // Funciones auxiliares
 int getVariableIndex(const std::string& varName);
 bool isWritableVariable(const std::string& varName);
+bool getPACConnectionStatus();
+void cleanupAndExit();  // Si la necesitas en main.cpp
+
+// Función auxiliar para getVariableIndex específico de API
+int getAPIVariableIndex(const std::string &varName);
+
+int getBatchVariableIndex(const std::string &varName);
 
 #endif // OPCUA_SERVER_H

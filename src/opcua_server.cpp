@@ -10,16 +10,19 @@ using namespace std;
 using json = nlohmann::json;
 
 // ============== VARIABLES GLOBALES ==============
-UA_Server *server = nullptr;
-std::atomic<bool> running{true};
-bool server_running = true;
-bool updating_internally = false; // ¡CAMBIO! Inicializar en false
-std::unique_ptr<PACControlClient> pacClient;
 Config config;
-std::mutex update_mutex;
+std::atomic<bool> running{true};
+std::atomic<bool> server_running{true};          // Para coordinación entre hilos
+bool server_running_flag = true;                 // 🆕 Para UA_Server_run() (requiere bool*)
+std::atomic<bool> updating_internally{false};
+//std::atomic<bool> server_writing_internally{false};  // Solo una declaración
+
+// Variables del servidor OPC-UA
+UA_Server *server = nullptr;
+std::unique_ptr<PACControlClient> pacClient;
 
 // NUEVA: Bandera para distinguir escrituras internas del servidor
-static std::atomic<bool> server_writing_internally{false};
+std::atomic<bool> server_writing_internally{false};
 
 // ============== FUNCIONES AUXILIARES ==============
 
@@ -96,21 +99,29 @@ bool isWritableVariable(const std::string &varName)
 
 // ============== CONFIGURACIÓN ==============
 
-bool loadConfig()
+// Reemplazar la función loadConfig() en línea ~106 por esta versión unificada:
+
+bool loadConfig(const string& configFile)
 {
-    cout << "📄 Cargando configuración..." << endl;
+    cout << "📄 Cargando configuración desde: " << configFile << endl;
 
     try
     {
-        ifstream configFile("tags.json");
-        if (!configFile.is_open())
+        ifstream file(configFile);
+        if (!file.is_open())
         {
-            cout << "❌ No se pudo abrir tags.json" << endl;
-            return false;
+            // Intentar archivo alternativo en raíz
+            file.open("tags.json");
+            if (!file.is_open()) {
+                cout << "❌ No se pudo abrir " << configFile << " ni tags.json" << endl;
+                return false;
+            }
+            cout << "📄 Usando archivo alternativo: tags.json" << endl;
         }
 
         json configJson;
-        configFile >> configJson;
+        file >> configJson;  // ✅ Ahora lee el JSON correctamente
+        file.close();
 
         // Configuración del PAC
         if (configJson.contains("pac_config"))
@@ -131,9 +142,11 @@ bool loadConfig()
 
         // Limpiar configuración anterior
         config.tags.clear();
+        config.api_tags.clear();  // Asegurar que api_tags esté limpia
+        config.simple_variables.clear();
         config.variables.clear();
 
-        // Cargar TAGs
+        // Cargar TAGs tradicionales
         if (configJson.contains("tbL_tags"))
         {
             for (const auto &tagJson : configJson["tbL_tags"])
@@ -161,36 +174,29 @@ bool loadConfig()
 
                 config.tags.push_back(tag);
             }
+            cout << "✓ Cargados " << config.tags.size() << " TBL_tags" << endl;
         }
 
-        // Crear variables desde TAGs
-        for (const auto &tag : config.tags)
+        // 🆕 Cargar TBL_tags_api (NUEVO)
+        if (configJson.contains("tbl_tags_api"))
         {
-            // Variables de valor (float)
-            for (const auto &varName : tag.variables)
+            for (const auto &apiJson : configJson["tbl_tags_api"])
             {
-                Variable var;
-                var.opcua_name = tag.name + "." + varName;
-                var.tag_name = tag.name;
-                var.var_name = varName;
-                var.pac_source = tag.value_table + ":" + to_string(getVariableIndex(varName));
-                var.type = Variable::FLOAT;
-                var.writable = isWritableVariable(varName);
-                config.variables.push_back(var);
-            }
+                APITag apiTag;
+                apiTag.name = apiJson.value("name", "");
+                apiTag.value_table = apiJson.value("value_table", "");
+                
+                if (apiJson.contains("variables"))
+                {
+                    for (const auto &var : apiJson["variables"])
+                    {
+                        apiTag.variables.push_back(var);
+                    }
+                }
 
-            // Variables de alarma (int32)
-            for (const auto &alarmName : tag.alarms)
-            {
-                Variable var;
-                var.opcua_name = tag.name + "." + alarmName;
-                var.tag_name = tag.name;
-                var.var_name = alarmName;
-                var.pac_source = tag.alarm_table + ":" + to_string(getVariableIndex(alarmName));
-                var.type = Variable::INT32;
-                var.writable = false; // Las alarmas son solo lectura
-                config.variables.push_back(var);
+                config.api_tags.push_back(apiTag);
             }
+            cout << "✓ Cargados " << config.api_tags.size() << " API_tags" << endl;
         }
 
         // Cargar variables simples individuales
@@ -198,32 +204,22 @@ bool loadConfig()
         {
             for (const auto &varJson : configJson["simple_variables"])
             {
-                Variable var;
-                var.opcua_name = varJson.value("opcua_name", "");
-                var.pac_source = varJson.value("pac_source", "");
-                var.writable = varJson.value("writable", false);
-
-                // Determinar tipo
-                string typeStr = varJson.value("type", "FLOAT");
-                if (typeStr == "INT32")
-                {
-                    var.type = Variable::INT32;
-                }
-                else
-                {
-                    var.type = Variable::FLOAT;
-                }
-
-                // Para variables simples, el tag_name y var_name son el opcua_name
-                var.tag_name = "SimpleVariables";
-                var.var_name = var.opcua_name;
-
-                config.variables.push_back(var);
+                SimpleVariable simpleVar;
+                simpleVar.name = varJson.value("name", "");
+                simpleVar.pac_source = varJson.value("pac_source", "");
+                simpleVar.type = varJson.value("type", "FLOAT");
+                simpleVar.writable = varJson.value("writable", false);
+                config.simple_variables.push_back(simpleVar);
             }
+            cout << "✓ Cargadas " << config.simple_variables.size() << " variables simples" << endl;
         }
 
+        // Procesar todas las estructuras en variables unificadas
+        processConfigIntoVariables();
+
         cout << "✓ Configuración cargada: " << config.tags.size() << " tags, "
-             << config.variables.size() << " variables" << endl;
+             << config.api_tags.size() << " api_tags, "
+             << config.variables.size() << " variables totales" << endl;
         return true;
     }
     catch (const exception &e)
@@ -231,6 +227,117 @@ bool loadConfig()
         cout << "❌ Error cargando configuración: " << e.what() << endl;
         return false;
     }
+}
+
+void processConfigIntoVariables()
+{
+    LOG_INFO("🔧 Procesando configuración en variables...");
+    
+    // Crear variables desde TAGs tradicionales
+    for (const auto &tag : config.tags)
+    {
+        LOG_DEBUG("📋 Procesando TAG: " << tag.name);
+        
+        // Variables de valor (float)
+        for (const auto &varName : tag.variables)
+        {
+            Variable var;
+            var.opcua_name = tag.name + "." + varName;
+            var.tag_name = tag.name;
+            var.var_name = varName;
+            var.pac_source = tag.value_table + ":" + to_string(getVariableIndex(varName));
+            var.type = Variable::FLOAT;
+            var.writable = isWritableVariable(varName);
+            var.has_node = false;
+            
+            config.variables.push_back(var);
+            LOG_DEBUG("  📝 " << var.opcua_name << " → " << var.pac_source << (var.writable ? " (R/W)" : " (R)"));
+        }
+
+        // Variables de alarma (int32)
+        for (const auto &alarmName : tag.alarms)
+        {
+            Variable var;
+            var.opcua_name = tag.name + "." + alarmName;
+            var.tag_name = tag.name;
+            var.var_name = alarmName;
+            var.pac_source = tag.alarm_table + ":" + to_string(getVariableIndex(alarmName));
+            var.type = Variable::INT32;
+            var.writable = false; // Las alarmas son solo lectura
+            var.has_node = false;
+            
+            config.variables.push_back(var);
+            LOG_DEBUG("  🚨 " << var.opcua_name << " → " << var.pac_source << " (R)");
+        }
+    }
+
+    // 🆕 Crear variables desde API_tags
+    for (const auto &apiTag : config.api_tags)
+    {
+        LOG_DEBUG("🔧 Procesando API TAG: " << apiTag.name);
+        
+        for (size_t i = 0; i < apiTag.variables.size(); i++)
+        {
+            Variable var;
+            var.opcua_name = apiTag.name + "." + apiTag.variables[i];  // "API_11001.IV"
+            var.tag_name = apiTag.name;  // "API_11001"
+            var.var_name = apiTag.variables[i];  // "IV"
+            var.pac_source = apiTag.value_table + ":" + to_string(i);  // "TBL_API_11001:0"
+            var.type = Variable::FLOAT;  // API tags son FLOAT
+            var.writable = true;  // API tags son escribibles
+            var.has_node = false;
+            
+            // Campos específicos de API
+            var.api_group = apiTag.name;
+            var.variable_name = apiTag.variables[i];
+            var.table_index = i;
+            
+            config.variables.push_back(var);
+            LOG_DEBUG("  🆕 " << var.opcua_name << " → " << var.pac_source << " (R/W)");
+        }
+        
+        LOG_INFO("✅ API " << apiTag.name << ": " << apiTag.variables.size() << " variables creadas");
+    }
+
+    // Crear variables desde simple_variables
+    for (const auto &simpleVar : config.simple_variables)
+    {
+        LOG_DEBUG("📋 Procesando variable simple: " << simpleVar.name);
+        
+        Variable var;
+        var.opcua_name = simpleVar.name;
+        var.pac_source = simpleVar.pac_source;
+        var.writable = simpleVar.writable;
+        var.has_node = false;
+
+        // Determinar tipo
+        if (simpleVar.type == "INT32")
+        {
+            var.type = Variable::INT32;
+        }
+        else
+        {
+            var.type = Variable::FLOAT;
+        }
+
+        var.tag_name = "SimpleVariables";
+        var.var_name = var.opcua_name;
+
+        config.variables.push_back(var);
+        LOG_DEBUG("  📌 " << var.opcua_name << " → " << var.pac_source << (var.writable ? " (R/W)" : " (R)"));
+    }
+    
+    LOG_INFO("✅ Procesamiento completado: " << config.variables.size() << " variables totales");
+    
+    // Estadísticas por tipo
+    int float_vars = 0, int_vars = 0, writable_vars = 0;
+    for (const auto &var : config.variables) {
+        if (var.type == Variable::FLOAT) float_vars++;
+        if (var.type == Variable::INT32) int_vars++;
+        if (var.writable) writable_vars++;
+    }
+    
+    LOG_INFO("📊 Estadísticas: " << float_vars << " FLOAT, " << int_vars << " INT32, " << writable_vars << " escribibles");
 }
 
 // ============== CALLBACK DE ESCRITURA ==============
@@ -765,6 +872,10 @@ void updateData()
                 else
                 {
                     // 📊 LEER TABLA DE VALORES (FLOAT)
+                    
+                    // 🆕 DETECTAR SI ES TABLA API
+                    bool isAPITable = tableName.find("TBL_API_") == 0;
+                    
                     vector<float> values = pacClient->readFloatTable(tableName, minIndex, maxIndex);
 
                     if (values.empty()) {
@@ -772,7 +883,11 @@ void updateData()
                         continue;
                     }
 
-                    DEBUG_INFO("✅ Leída tabla FLOAT: " << tableName << " (" << values.size() << " valores)");
+                    if (isAPITable) {
+                        DEBUG_INFO("✅ Leída tabla API: " << tableName << " (" << values.size() << " valores)");
+                    } else {
+                        DEBUG_INFO("✅ Leída tabla FLOAT: " << tableName << " (" << values.size() << " valores)");
+                    }
 
                     // Actualizar variables
                     int vars_updated = 0;
@@ -852,15 +967,24 @@ void updateData()
 
 // ============== FUNCIONES PRINCIPALES ==============
 
-void ServerInit()
+bool ServerInit()
 {
     cout << "🚀 Inicializando servidor OPC UA..." << endl;
 
     // Cargar configuración
-    if (!loadConfig())
+    try
     {
-        cout << "⚠️ Usando configuración por defecto" << endl;
+        if (!loadConfig("config.json"))
+        {
+            cout << "❌ Error cargando configuración - abortando" << endl;
+            return false;  // ✅ CORREGIDO
+        }
     }
+    catch(const std::exception& e)
+    {
+        std::cerr << e.what() << '\n';
+    }
+    
 
     cout << "📋 Servidor: " << config.server_name << endl;
 
@@ -869,7 +993,7 @@ void ServerInit()
     if (!server)
     {
         cout << "❌ Error creando servidor OPC UA" << endl;
-        return;
+        return false;  // ✅ CORREGIDO
     }
 
     // Configurar información del servidor usando el nombre de la configuración
@@ -910,26 +1034,61 @@ void ServerInit()
     }
 
     cout << "✅ Servidor inicializado correctamente" << endl;
-    // Inicializar configuración
+    return true;  // ✅ AGREGAR retorno exitoso
 }
 
-UA_StatusCode runServer()
-{
-    cout << "▶️ Servidor OPC UA iniciado en puerto " << config.opcua_port << endl;
-
-    // Iniciar hilo de actualización
-    thread updateThread(updateData);
-
-    // Ejecutar servidor
-    UA_StatusCode retval = UA_Server_run(server, &server_running);
-
-    // Esperar hilo de actualización
-    if (updateThread.joinable())
-    {
-        updateThread.join();
+UA_StatusCode runServer() {
+    if (!server) {
+        LOG_ERROR("Servidor no inicializado");
+        return UA_STATUSCODE_BADINTERNALERROR;
     }
+    
+    LOG_INFO("▶️ Servidor OPC-UA iniciado en puerto " << config.opcua_port);
 
-    return retval;
+    // Iniciar hilo de actualización de datos
+    std::thread updateThread(updateData);
+
+    try {
+        // Sincronizar variable bool normal con atomic
+        server_running_flag = server_running.load();
+        
+        // Ejecutar servidor principal (requiere bool*)
+        UA_StatusCode retval = UA_Server_run(server, &server_running_flag);
+        
+        // Actualizar variable atomic cuando termine
+        server_running = false;
+        running = false;
+        
+        // Esperar que termine el hilo de actualización
+        if (updateThread.joinable()) {
+            LOG_INFO("⏳ Esperando hilo de actualización...");
+            
+            // Dar tiempo para que termine elegantemente
+            auto start = std::chrono::steady_clock::now();
+            while (updateThread.joinable() && 
+                   std::chrono::steady_clock::now() - start < std::chrono::seconds(5)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            
+            if (updateThread.joinable()) {
+                LOG_INFO("🔄 Forzando terminación de hilo de actualización");
+                updateThread.detach();
+            } else {
+                updateThread.join();
+            }
+        }
+        
+        return retval;
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR("Excepción en runServer: " << e.what());
+        
+        if (updateThread.joinable()) {
+            updateThread.detach();
+        }
+        
+        return UA_STATUSCODE_BADINTERNALERROR;
+    }
 }
 
 bool getPACConnectionStatus()
@@ -937,23 +1096,84 @@ bool getPACConnectionStatus()
     return pacClient && pacClient->isConnected();
 }
 
-void cleanupAndExit()
+void cleanupServer() {
+    LOG_INFO("🧹 Limpiando recursos del servidor OPC-UA...");
+    
+    try {
+        // Marcar que estamos cerrando
+        running = false;
+        server_running = false;
+        
+        // Esperar que terminen las operaciones en curso
+        if (updating_internally.load()) {
+            LOG_INFO("⏳ Esperando que termine actualización en curso...");
+            for (int i = 0; i < 30 && updating_internally.load(); i++) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+        }
+        
+        // Limpiar cliente PAC
+        if (pacClient) {
+            LOG_INFO("🔌 Desconectando cliente PAC...");
+            pacClient->disconnect();
+            pacClient.reset();
+        }
+        
+        // Limpiar servidor OPC-UA
+        if (server) {
+            LOG_INFO("🌐 Eliminando servidor OPC-UA...");
+            UA_Server_delete(server);
+            server = nullptr;
+        }
+        
+        // Limpiar configuración
+        config.variables.clear();
+        config.tags.clear();
+        config.api_tags.clear();
+        config.simple_variables.clear();
+        
+        LOG_INFO("✅ Recursos liberados correctamente");
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR("Error durante limpieza: " << e.what());
+    } catch (...) {
+        LOG_ERROR("Error desconocido durante limpieza");
+    }
+}
+
+// Función auxiliar para getVariableIndex específico de API
+int getAPIVariableIndex(const std::string &varName) {
+    // Para API tags: IV=0, NSV=1, CPL=2, CTL=3
+    if (varName == "IV") return 0;    // Input Value
+    if (varName == "NSV") return 1;   // Net Standard Volume  
+    if (varName == "CPL") return 2;   // Corrected Pipeline
+    if (varName == "CTL") return 3;   // Control
+    
+    // Fallback a función general
+    return getVariableIndex(varName);
+}
+
+int getBatchVariableIndex(const std::string &varName)
 {
-    cout << "\n🧹 Limpieza y terminación..." << endl;
+    if (varName == "Tiquete") return 0;
+    if (varName == "Cliente") return 1;
+    if (varName == "Producto") return 2;
+    if (varName == "Presion") return 3;
+    if (varName == "Temperatura") return 4;
+    if (varName == "Preision_EQ") return 5;
+    if (varName == "Densidad_(@60ºF)") return 6;
+    if (varName == "Densidad_OBSV") return 7;
+    if (varName == "Flujo_Indicado") return 8;
+    if (varName == "Flujo_Bruto") return 9;
+    if (varName == "Flujo_Neto_STD") return 10;
+    if (varName == "Volumen_Indicado") return 11;
+    if (varName == "Volumen_Bruto") return 12;
+    if (varName == "Volumen_Neto_STD") return 13;
 
-    running = false;
-    server_running = false;
+    return 0;
+}
 
-    if (pacClient)
-    {
-        pacClient.reset();
-    }
-
-    if (server)
-    {
-        UA_Server_delete(server);
-        server = nullptr;
-    }
-
-    cout << "✓ Limpieza completada" << endl;
+// Alias para compatibilidad con main.cpp
+void cleanupAndExit() {
+    cleanupServer();
 }

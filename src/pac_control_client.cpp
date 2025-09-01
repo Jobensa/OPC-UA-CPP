@@ -289,6 +289,33 @@ vector<int32_t> PACControlClient::readInt32Table(const string &table_name,
     return ints;
 }
 
+string PACControlClient::readStringVariable(const string &variable_name)
+{
+    lock_guard<mutex> lock(comm_mutex);
+
+    if (!connected)
+    {
+        cerr << "No conectado al PAC" << endl;
+        return "";
+    }
+
+    stringstream cmd;
+    cmd << variable_name << " PRINT$\r";
+
+    string command = cmd.str();
+
+    if (!sendCommand(command))
+    {
+        cerr << "Error enviando comando string" << endl;
+        return "";
+    }
+
+    string response = receiveResponse();
+
+   return response;
+
+}
+
 bool PACControlClient::writeFloatVariable(const string &table_name, int index, float value)
 {
     // TODO: Implementar protocolo de escritura
