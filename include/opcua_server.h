@@ -7,8 +7,11 @@
 #include <atomic>
 #include <mutex>
 #include <map>
+#include <nlohmann/json.hpp>  // 🔧 AGREGAR ESTA LÍNEA
 
 using namespace std;
+using json = nlohmann::json;  // 🔧 AGREGAR ESTA LÍNEA
+
 // Forward declarations
 class PACControlClient;
 
@@ -24,31 +27,39 @@ extern std::atomic<bool> server_writing_internally;
 bool ServerInit();
 UA_StatusCode runServer();
 void shutdownServer();
-void cleanupServer();  // ✅ Asegurar que esté declarada
+void cleanupServer();
 bool isServerRunning();
 void runServerIteration();
 
 // Funciones de configuración y datos
 bool loadConfig(const string& configFile);
-void processConfigIntoVariables();  // 🆕 NUEVA DECLARACIÓN
+void processConfigIntoVariables();
 void createNodes();
 void updateData();
+bool processConfigFromJson(const json& configJson);  // 🔧 AHORA FUNCIONARÁ
 
-
-// 🆕 Funciones específicas para procesar diferentes tipos
+// Funciones específicas para procesar diferentes tipos
 void processSimpleVariables();
 void processTBLTags();
-void processAPITags();  // Nueva para TBL_tags_api
+void processAPITags();
 
 // Funciones auxiliares
 int getVariableIndex(const std::string& varName);
 bool isWritableVariable(const std::string& varName);
 bool getPACConnectionStatus();
-void cleanupAndExit();  // Si la necesitas en main.cpp
+void cleanupAndExit();
 
-// Función auxiliar para getVariableIndex específico de API
+// Funciones auxiliares específicas
 int getAPIVariableIndex(const std::string &varName);
-
 int getBatchVariableIndex(const std::string &varName);
+
+// 🔧 AGREGAR DECLARACIÓN DEL CALLBACK
+static UA_StatusCode writeCallback(UA_Server *server,
+                                  const UA_NodeId *sessionId,
+                                  void *sessionContext,
+                                  const UA_NodeId *nodeId,
+                                  void *nodeContext,
+                                  const UA_NumericRange *range,
+                                  const UA_DataValue *data);
 
 #endif // OPCUA_SERVER_H
