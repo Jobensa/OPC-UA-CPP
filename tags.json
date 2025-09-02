@@ -284,53 +284,13 @@
     }
   ],
   "tbL_tags": [
-    {
+    
+     {
       "name": "TT_11001",
       "value_table": "TBL_TT_11001",
       "alarm_table": "TBL_TA_11001",
-      "variables": [
-        "Input",
-        "SetHH",
-        "SetH",
-        "SetL",
-        "SetLL",
-        "SIM_Value",
-        "PV",
-        "min",
-        "max",
-        "percent"
-      ],
-      "alarms": [
-        "HH",
-        "H",
-        "L",
-        "LL",
-        "Color"
-      ]
-    },
-    {
-      "name": "TT_11002",
-      "value_table": "TBL_TT_11002",
-      "alarm_table": "TBL_TA_11002",
-      "variables": [
-        "Input",
-        "SetHH",
-        "SetH",
-        "SetL",
-        "SetLL",
-        "SIM_Value",
-        "PV",
-        "min",
-        "max",
-        "percent"
-      ],
-      "alarms": [
-        "HH",
-        "H",
-        "L",
-        "LL",
-        "Color"
-      ]
+      "variables": ["Input", "SetHH", "SetH", "SetL", "SetLL", "SIM_Value", "PV", "min", "max", "percent"],
+      "alarms": ["HH", "H", "L", "LL", "Color"]
     },
     {
       "name": "TT_11002",

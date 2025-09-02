@@ -9,7 +9,7 @@
 
 // ============== ESTRUCTURAS UNIFICADAS ==============
 
-// Variable unificada (combinando ambas definiciones)
+// Variable unificada (para OPC-UA)
 struct Variable {
     // Nombres e identificadores
     std::string opcua_name;      // Nombre completo en OPC-UA (ej: "API_11001.IV")
@@ -18,13 +18,13 @@ struct Variable {
     std::string pac_source;      // Fuente en PAC: tabla+índice (ej: "TBL_API_11001:0")
     
     // Propiedades
-    enum Type { FLOAT, INT32, SINGLE_FLOAT, SINGLE_INT32 } type;
+    enum Type { FLOAT, INT32, SINGLE_FLOAT, SINGLE_INT32 } type = FLOAT;
     bool writable = false;       // Si se puede escribir
     bool has_node = false;       // Si ya se creó el nodo OPC-UA
+    int node_id = 0;            // NodeId numérico único
     
-    // 🆕 Campos específicos para API tags
-    std::string api_group;       // "API_11001" (para agrupar)
-    std::string variable_name;   // "IV" (alias de var_name)
+    // Campos adicionales
+    std::string description;     // Descripción opcional
     int table_index = -1;        // Índice en la tabla (0, 1, 2, 3)
 };
 
@@ -37,14 +37,14 @@ struct Tag {
     std::vector<std::string> alarms;     // ["HI", "LO", "BAD"]
 };
 
-// 🆕 Configuración de API TAG (TBL_tags_api)  
+// Configuración de API TAG (TBL_tags_api)  
 struct APITag {
     std::string name;            // "API_11001"
     std::string value_table;     // "TBL_API_11001"     
     std::vector<std::string> variables;  // ["IV", "NSV", "CPL", "CTL"]
 };
 
-// 🆕 Configuración de BATCH TAG  
+// Configuración de BATCH TAG  
 struct BatchTag {
     std::string name;            // "BATCH_B1"
     std::string value_table;     // "TBL_BATCH_B1"     
@@ -56,32 +56,60 @@ struct SimpleVariable {
     std::string name;            // "TEMP_AMBIENT"
     std::string pac_source;      // "F_TEMP_AMBIENT" o "TBL_MISC:5"
     std::string type;            // "FLOAT" o "INT32"
+    std::string description;     // Descripción opcional
     bool writable = false;
 };
 
-// Configuración completa unificada
+// ============== CONFIGURACIÓN GLOBAL UNIFICADA ==============
 struct Config {
-    // Configuración de conexión
+    // Configuración de conexión PAC
     std::string pac_ip = "192.168.1.30";
     int pac_port = 22001;
+    
+    // Configuración del servidor OPC-UA
     int opcua_port = 4840;
     int update_interval_ms = 2000;
     std::string server_name = "PAC Control SCADA Server";
     
-    // Estructuras de datos
+    // Estructuras de datos de configuración (desde JSON)
     std::vector<Tag> tags;                    // TBL_tags tradicionales
-    std::vector<APITag> api_tags;            // 🆕 TBL_tags_api  
-    std::vector<BatchTag> batch_tags;        // 🆕 BATCH_tags
+    std::vector<APITag> api_tags;            // TBL_tags_api  
+    std::vector<BatchTag> batch_tags;        // BATCH_tags
     std::vector<SimpleVariable> simple_variables;  // Variables individuales
-    std::vector<Variable> variables;         // Variables procesadas finales
+    
+    // Variables procesadas para OPC-UA (generadas desde las anteriores)
+    std::vector<Variable> variables;         // Variables finales para OPC-UA
+    
+    // Métodos de utilidad
+    void clear() {
+        tags.clear();
+        api_tags.clear(); 
+        batch_tags.clear();
+        simple_variables.clear();
+        variables.clear();
+    }
+    
+    size_t getTotalVariableCount() const {
+        return variables.size();
+    }
+    
+    size_t getWritableVariableCount() const {
+        size_t count = 0;
+        for (const auto& var : variables) {
+            if (var.writable) count++;
+        }
+        return count;
+    }
 };
 
 // ============== VARIABLES GLOBALES ==============
 extern Config config;
 extern std::atomic<bool> running;
 extern std::atomic<bool> server_running;
+extern std::atomic<bool> updating_internally;
+extern std::atomic<bool> server_writing_internally;
 
-// ============== LOGGING SIMPLIFICADO ==============
+// ============== LOGGING UNIFICADO ==============
 #ifdef SILENT_MODE
     #define LOG_ENABLED 0
 #elif defined(VERBOSE_DEBUG)

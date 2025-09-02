@@ -4,7 +4,7 @@ project(pac_to_opcua)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Encontrar dependencias
+# 🔧 BUSCAR OPEN62541 (después de reinstalación correcta)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(OPEN62541 REQUIRED open62541)
 
@@ -26,7 +26,16 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 target_link_libraries(${PROJECT_NAME} 
     ${OPEN62541_LIBRARIES}
     pthread
+    m
+    dl
+    rt
 )
 
-# Flags de compilación
-target_compile_options(${PROJECT_NAME} PRIVATE ${OPEN62541_CFLAGS_OTHER})
+# RPATH para encontrar librerías
+set_target_properties(${PROJECT_NAME} PROPERTIES
+    INSTALL_RPATH "/usr/local/lib"
+    BUILD_WITH_INSTALL_RPATH TRUE
+)
+
+message(STATUS "Open62541 libraries: ${OPEN62541_LIBRARIES}")
+message(STATUS "Open62541 include dirs: ${OPEN62541_INCLUDE_DIRS}")

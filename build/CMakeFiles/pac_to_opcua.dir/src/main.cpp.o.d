@@ -329,24 +329,20 @@ CMakeFiles/pac_to_opcua.dir/src/main.cpp.o: \
  /usr/include/nlohmann/detail/macro_unscope.hpp \
  /usr/include/nlohmann/thirdparty/hedley/hedley_undef.hpp \
  /media/jose/Datos/Data/Proyectos/PetroSantander/SCADA/pac_to_opcua/include/opcua_server.h \
- /media/jose/Datos/Data/Proyectos/PetroSantander/SCADA/pac_to_opcua/include/common.h \
- /usr/local/include/open62541/server.h \
- /usr/local/include/open62541/common.h \
- /usr/local/include/open62541/config.h \
+ /usr/include/open62541/server.h /usr/include/open62541/types.h \
+ /usr/include/open62541/config.h \
  /usr/lib/gcc/x86_64-linux-gnu/14/include/stdbool.h \
  /usr/include/inttypes.h /usr/lib/gcc/x86_64-linux-gnu/14/include/float.h \
- /usr/include/c++/14/stdlib.h /usr/local/include/open62541/nodeids.h \
- /usr/local/include/open62541/util.h /usr/local/include/open62541/types.h \
- /usr/local/include/open62541/statuscodes.h \
- /usr/local/include/open62541/types_generated.h \
- /usr/local/include/open62541/plugin/log.h \
- /usr/local/include/open62541/client.h \
- /usr/local/include/open62541/plugin/eventloop.h \
- /usr/local/include/open62541/plugin/securitypolicy.h \
- /usr/local/include/open62541/plugin/certificategroup.h \
- /usr/local/include/open62541/server_pubsub.h \
- /usr/local/include/open62541/plugin/nodestore.h \
- /usr/local/include/open62541/plugin/accesscontrol.h \
- /usr/local/include/open62541/plugin/historydatabase.h \
- /usr/include/c++/14/mutex /usr/include/c++/14/bits/std_mutex.h \
- /usr/include/c++/14/bits/unique_lock.h
+ /usr/include/c++/14/stdlib.h /usr/include/open62541/common.h \
+ /usr/include/open62541/nodeids.h /usr/include/open62541/statuscodes.h \
+ /usr/include/open62541/types_generated.h \
+ /usr/include/open62541/types_generated_handling.h \
+ /usr/include/open62541/types_generated.h /usr/include/open62541/util.h \
+ /usr/include/open62541/plugin/log.h /usr/include/open62541/plugin/pki.h \
+ /usr/include/open62541/plugin/nodestore.h \
+ /usr/include/open62541/plugin/eventloop.h \
+ /usr/include/open62541/plugin/accesscontrol.h \
+ /usr/include/open62541/plugin/securitypolicy.h \
+ /usr/include/open62541/client.h /usr/include/open62541/server_pubsub.h \
+ /usr/include/open62541/plugin/historydatabase.h \
+ /media/jose/Datos/Data/Proyectos/PetroSantander/SCADA/pac_to_opcua/include/common.h
