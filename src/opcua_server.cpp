@@ -13,14 +13,11 @@ using namespace std;
 using json = nlohmann::json;
 
 // ============== VARIABLES GLOBALES ==============
-<<<<<<< HEAD
-=======
 UA_Server *server = nullptr;
 std::atomic<bool> running{true};
 bool server_running = true;
 std::atomic<bool> updating_internally{false}; // 🔧 CORREGIDO: Hacer atómica
 std::unique_ptr<PACControlClient> pacClient;
->>>>>>> 018c2b7 (se adicionan tipos adicionales de datos, tbl_api, tbl_batch, tbl_pid)
 Config config;
 std::atomic<bool> running{true};
 std::atomic<bool> server_running{true};          // Para coordinación entre hilos
@@ -110,13 +107,7 @@ bool isWritableVariable(const std::string &varName)
 
 // ============== CONFIGURACIÓN ==============
 
-<<<<<<< HEAD
-// Reemplazar la función loadConfig() en línea ~106 por esta versión unificada:
-
-bool loadConfig(const string& configFile)
-=======
 bool loadConfig(const string& configFile)  // 🔧 CORREGIDO: Parámetro obligatorio
->>>>>>> 018c2b7 (se adicionan tipos adicionales de datos, tbl_api, tbl_batch, tbl_pid)
 {
     cout << "📄 Cargando configuración desde: " << configFile << endl;
 
@@ -125,143 +116,13 @@ bool loadConfig(const string& configFile)  // 🔧 CORREGIDO: Parámetro obligat
         ifstream file(configFile);
         if (!file.is_open())
         {
-<<<<<<< HEAD
-            // Intentar archivo alternativo en raíz
-            file.open("tags.json");
-            if (!file.is_open()) {
-=======
             // Intentar archivo alternativo
             ifstream fallbackFile("tags.json");
             if (!fallbackFile.is_open()) {
->>>>>>> 018c2b7 (se adicionan tipos adicionales de datos, tbl_api, tbl_batch, tbl_pid)
                 cout << "❌ No se pudo abrir " << configFile << " ni tags.json" << endl;
                 return false;
             }
             cout << "📄 Usando archivo alternativo: tags.json" << endl;
-<<<<<<< HEAD
-        }
-
-        json configJson;
-        file >> configJson;  // ✅ Ahora lee el JSON correctamente
-        file.close();
-
-        // Configuración del PAC
-        if (configJson.contains("pac_config"))
-        {
-            auto &pac = configJson["pac_config"];
-            config.pac_ip = pac.value("ip", "192.168.1.30");
-            config.pac_port = pac.value("port", 22001);
-        }
-
-        // Configuración del servidor
-        if (configJson.contains("server_config"))
-        {
-            auto &srv = configJson["server_config"];
-            config.opcua_port = srv.value("opcua_port", 4840);
-            config.update_interval_ms = srv.value("update_interval_ms", 2000);
-            config.server_name = srv.value("server_name", "PAC Control SCADA Server");
-        }
-
-        // Limpiar configuración anterior
-        config.tags.clear();
-        config.api_tags.clear();  // Asegurar que api_tags esté limpia
-        config.simple_variables.clear();
-        config.variables.clear();
-        config.batch_tags.clear();  
-
-        // Cargar TAGs tradicionales
-        if (configJson.contains("tbL_tags"))
-        {
-            for (const auto &tagJson : configJson["tbL_tags"])
-            {
-                Tag tag;
-                tag.name = tagJson.value("name", "");
-                tag.value_table = tagJson.value("value_table", "");
-                tag.alarm_table = tagJson.value("alarm_table", "");
-
-                if (tagJson.contains("variables"))
-                {
-                    for (const auto &var : tagJson["variables"])
-                    {
-                        tag.variables.push_back(var);
-                    }
-                }
-
-                if (tagJson.contains("alarms"))
-                {
-                    for (const auto &alarm : tagJson["alarms"])
-                    {
-                        tag.alarms.push_back(alarm);
-                    }
-                }
-
-                config.tags.push_back(tag);
-            }
-            cout << "✓ Cargados " << config.tags.size() << " TBL_tags" << endl;
-        }
-
-        // 🆕 Cargar TBL_tags_api (NUEVO)
-        if (configJson.contains("tbl_tags_api"))
-        {
-            for (const auto &apiJson : configJson["tbl_tags_api"])
-            {
-                APITag apiTag;
-                apiTag.name = apiJson.value("name", "");
-                apiTag.value_table = apiJson.value("value_table", "");
-                
-                if (apiJson.contains("variables"))
-                {
-                    for (const auto &var : apiJson["variables"])
-                    {
-                        apiTag.variables.push_back(var);
-                    }
-                }
-
-                config.api_tags.push_back(apiTag);
-            }
-            cout << "✓ Cargados " << config.api_tags.size() << " API_tags" << endl;
-        }
-
-        if (configJson.contains("tbl_batch")   )
-        {
-            BatchTag batchTag;
-
-            for (auto &&batchJson : configJson["tbl_batch"]    )
-            {
-                batchTag.name = batchJson.value("name", "");
-                batchTag.value_table = batchJson.value("value_table", "");
-                for (const auto &var : batchJson["variables"]   )
-                {
-                    batchTag.variables.push_back(var);
-                
-                }
-                config.batch_tags.push_back(batchTag);
-            }
-        }
-
-        // Cargar variables simples individuales
-        if (configJson.contains("simple_variables"))
-        {
-            for (const auto &varJson : configJson["simple_variables"])
-            {
-                SimpleVariable simpleVar;
-                simpleVar.name = varJson.value("name", "");
-                simpleVar.pac_source = varJson.value("pac_source", "");
-                simpleVar.type = varJson.value("type", "FLOAT");
-                simpleVar.writable = varJson.value("writable", false);
-                config.simple_variables.push_back(simpleVar);
-            }
-            cout << "✓ Cargadas " << config.simple_variables.size() << " variables simples" << endl;
-        }
-
-        // Procesar todas las estructuras en variables unificadas
-        processConfigIntoVariables();
-
-        cout << "✓ Configuración cargada: " << config.tags.size() << " tags, "
-             << config.api_tags.size() << " api_tags, "
-             << config.variables.size() << " variables totales" << endl;
-        return true;
-=======
             
             // 🔧 CORREGIDO: Leer el archivo correctamente
             json configJson;
@@ -277,7 +138,6 @@ bool loadConfig(const string& configFile)  // 🔧 CORREGIDO: Parámetro obligat
         file.close();  // 🔧 AGREGADO: Cerrar archivo explícitamente
 
         return processConfigFromJson(configJson);
->>>>>>> 018c2b7 (se adicionan tipos adicionales de datos, tbl_api, tbl_batch, tbl_pid)
     }
     catch (const exception &e)
     {
@@ -286,8 +146,6 @@ bool loadConfig(const string& configFile)  // 🔧 CORREGIDO: Parámetro obligat
     }
 }
 
-<<<<<<< HEAD
-=======
 // 🆕 NUEVA FUNCIÓN: Procesar configuración desde JSON
 bool processConfigFromJson(const json& configJson) {
     // Configuración del PAC
@@ -390,7 +248,6 @@ bool processConfigFromJson(const json& configJson) {
     return true;
 }
 
->>>>>>> 018c2b7 (se adicionan tipos adicionales de datos, tbl_api, tbl_batch, tbl_pid)
 void processConfigIntoVariables()
 {
     LOG_INFO("🔧 Procesando configuración en variables...");
@@ -488,36 +345,6 @@ void processConfigIntoVariables()
         config.variables.push_back(var);
         LOG_DEBUG("  📌 " << var.opcua_name << " → " << var.pac_source << (var.writable ? " (R/W)" : " (R)"));
     }
-<<<<<<< HEAD
-
-    for(const auto &batchTag : config.batch_tags) 
-    {
-        LOG_DEBUG("🏷️ Procesando BATCH TAG: " << batchTag.name);
-        
-        for (size_t i = 0; i < batchTag.variables.size(); i++) 
-        {
-            Variable var;
-            var.opcua_name = batchTag.name + "." + batchTag.variables[i];  // "BATCH_B1.IV"
-            var.tag_name = batchTag.name;  // "BATCH_B1"
-            var.var_name = batchTag.variables[i];  // "IV"
-            var.pac_source = batchTag.value_table + ":" + to_string(i);  // "TBL_BATCH_B1:0"
-            var.type = Variable::FLOAT;  // Asumir FLOAT para BATCH tags
-            var.writable = true;  // Asumir escribible para BATCH tags
-            var.has_node = false;
-            
-            // Campos específicos de BATCH
-            var.api_group = batchTag.name;
-            var.variable_name = batchTag.variables[i];
-            var.table_index = i;
-            
-            config.variables.push_back(var);
-            LOG_DEBUG("  🏷️ " << var.opcua_name << " → " << var.pac_source << " (R/W)");
-        }
-        
-        LOG_INFO("✅ BATCH " << batchTag.name << ": " << batchTag.variables.size() << " variables creadas");
-    }
-=======
->>>>>>> 018c2b7 (se adicionan tipos adicionales de datos, tbl_api, tbl_batch, tbl_pid)
     
     LOG_INFO("✅ Procesamiento completado: " << config.variables.size() << " variables totales");
     
