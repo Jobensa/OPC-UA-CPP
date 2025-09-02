@@ -454,36 +454,55 @@ void processConfigIntoVariables()
 
 // ============== CALLBACKS CORREGIDOS ==============
 
-// 🔧 CALLBACK DE ESCRITURA - CORREGIDO PARA NODEID NUMÉRICO
-static void writeCallback(UA_Server *server,
-                         const UA_NodeId *sessionId,
-                         void *sessionContext,
-                         const UA_NodeId *nodeId,
-                         void *nodeContext,
-                         const UA_NumericRange *range,
-                         const UA_DataValue *data) {
+// 🔧 CALLBACK DE LECTURA CORREGIDO
+static UA_StatusCode readCallback(UA_Server *server,
+                                 const UA_NodeId *sessionId, void *sessionContext,
+                                 const UA_NodeId *nodeId, void *nodeContext,
+                                 UA_Boolean sourceTimeStamp,
+                                 const UA_NumericRange *range,
+                                 UA_DataValue *dataValue) {
+    
+    // 🔍 IGNORAR LECTURAS DURANTE ACTUALIZACIONES INTERNAS
+    if (updating_internally.load()) {
+        return UA_STATUSCODE_GOOD;
+    }
+    
+    if (nodeId && nodeId->identifierType == UA_NODEIDTYPE_NUMERIC) {
+        uint32_t numericNodeId = nodeId->identifier.numeric;
+        LOG_DEBUG("📖 Lectura de NodeId: " << numericNodeId);
+    }
+    
+    return UA_STATUSCODE_GOOD;
+}
+
+// 🔧 CALLBACK DE ESCRITURA CORREGIDO  
+static UA_StatusCode writeCallback(UA_Server *server,
+                                  const UA_NodeId *sessionId, void *sessionContext,
+                                  const UA_NodeId *nodeId, void *nodeContext,
+                                  const UA_NumericRange *range,
+                                  const UA_DataValue *data) {
     
     // 🔍 IGNORAR ESCRITURAS INTERNAS DEL SERVIDOR
     if (server_writing_internally.load()) {
-        return;
+        return UA_STATUSCODE_GOOD;
     }
 
     // 🔒 EVITAR PROCESAMIENTO DURANTE ACTUALIZACIONES
     if (updating_internally.load()) {
         LOG_ERROR("Escritura rechazada: servidor actualizando");
-        return;
+        return UA_STATUSCODE_BADNOTWRITABLE;
     }
     
     // ✅ VALIDACIONES BÁSICAS
     if (!server || !nodeId || !data || !data->value.data) {
         LOG_ERROR("Parámetros inválidos en writeCallback");
-        return;
+        return UA_STATUSCODE_BADINVALIDARGUMENT;
     }
 
     // 🔧 MANEJAR NODEID NUMÉRICO
     if (nodeId->identifierType != UA_NODEIDTYPE_NUMERIC) {
         LOG_ERROR("Tipo de NodeId no soportado (esperado numérico)");
-        return;
+        return UA_STATUSCODE_BADNODEIDUNKNOWN;
     }
 
     uint32_t numericNodeId = nodeId->identifier.numeric;
@@ -500,18 +519,18 @@ static void writeCallback(UA_Server *server,
 
     if (!var) {
         LOG_ERROR("Variable no encontrada para NodeId: " << numericNodeId);
-        return;
+        return UA_STATUSCODE_BADNODEIDUNKNOWN;
     }
 
     if (!var->writable) {
         LOG_ERROR("Variable no escribible: " << var->opcua_name);
-        return;
+        return UA_STATUSCODE_BADNOTWRITABLE;
     }
 
     // 🔒 VERIFICAR CONEXIÓN PAC
     if (!pacClient || !pacClient->isConnected()) {
         LOG_ERROR("PAC no conectado para escritura: " << var->opcua_name);
-        return;
+        return UA_STATUSCODE_BADCONNECTIONCLOSED;
     }
 
     LOG_DEBUG("✅ Procesando escritura para: " << var->opcua_name << " (PAC: " << var->pac_source << ")");
@@ -522,51 +541,32 @@ static void writeCallback(UA_Server *server,
     if (var->type == Variable::FLOAT) {
         if (data->value.type == &UA_TYPES[UA_TYPES_FLOAT]) {
             float value = *(float*)data->value.data;
-            // Aquí irían las llamadas al PAC
+            // TODO: Implementar escritura real al PAC
             LOG_WRITE("Escribiendo FLOAT " << value << " a " << var->pac_source);
             write_success = true; // Placeholder
         } else {
             LOG_ERROR("Tipo de dato incorrecto para variable FLOAT: " << var->opcua_name);
+            return UA_STATUSCODE_BADTYPEMISMATCH;
         }
     } else if (var->type == Variable::INT32) {
         if (data->value.type == &UA_TYPES[UA_TYPES_INT32]) {
             int32_t value = *(int32_t*)data->value.data;
-            // Aquí irían las llamadas al PAC
+            // TODO: Implementar escritura real al PAC
             LOG_WRITE("Escribiendo INT32 " << value << " a " << var->pac_source);
             write_success = true; // Placeholder
         } else {
             LOG_ERROR("Tipo de dato incorrecto para variable INT32: " << var->opcua_name);
+            return UA_STATUSCODE_BADTYPEMISMATCH;
         }
     }
 
     // ✅ RESULTADO FINAL
     if (write_success) {
         LOG_WRITE("✅ Escritura exitosa: " << var->opcua_name);
+        return UA_STATUSCODE_GOOD;
     } else {
         LOG_ERROR("❌ Error en escritura: " << var->opcua_name);
-    }
-}
-
-// 🔧 CALLBACK DE LECTURA CORREGIDO PARA NODEID NUMÉRICO
-static void readCallback(UA_Server *server,
-                        const UA_NodeId *sessionId,
-                        void *sessionContext,
-                        const UA_NodeId *nodeId,
-                        void *nodeContext,
-                        const UA_NumericRange *range,
-                        const UA_DataValue *data) {
-    
-    // 🔍 IGNORAR LECTURAS DURANTE ACTUALIZACIONES INTERNAS
-    if (updating_internally.load()) {
-        return;
-    }
-    
-    // Para este callback de lectura, normalmente no necesitamos hacer nada especial
-    // ya que los valores se actualizan desde updateData()
-    
-    if (nodeId && nodeId->identifierType == UA_NODEIDTYPE_NUMERIC) {
-        uint32_t numericNodeId = nodeId->identifier.numeric;
-        LOG_DEBUG("📖 Lectura de NodeId: " << numericNodeId);
+        return UA_STATUSCODE_BADINTERNALERROR;
     }
 }
 
@@ -574,123 +574,216 @@ static void readCallback(UA_Server *server,
 
 void createNodes()
 {
-    LOG_DEBUG("🏗️ Creando nodos OPC-UA...");
+    LOG_INFO("🔧 Creando nodos OPC-UA con estructura jerárquica...");
 
-    // Agrupar variables por TAG
-    map<string, vector<Variable *>> tagVars;
-    for (auto &var : config.variables)
-    {
-        tagVars[var.tag_name].push_back(&var);
+    if (!server) {
+        LOG_ERROR("Servidor no inicializado");
+        return;
     }
 
-    // 🔧 USAR CONTADOR PARA NODEIDS ÚNICOS
-    int nodeCounter = 1000;
+    // 🏗️ CREAR CARPETA PRINCIPAL
+    UA_NodeId mainFolderNodeId = UA_NODEID_NUMERIC(1, 1000);
+    UA_ObjectAttributes mainFolderAttr = UA_ObjectAttributes_default;
+    mainFolderAttr.displayName = UA_LOCALIZEDTEXT("en-US", "PAC Control Variables");
+    
+    UA_StatusCode result = UA_Server_addObjectNode(server, mainFolderNodeId,
+                                                  UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
+                                                  UA_NODEID_NUMERIC(0, UA_NS0ID_ORGANIZES),
+                                                  UA_QUALIFIEDNAME(1, "PAC_Control"),
+                                                  UA_NODEID_NUMERIC(0, UA_NS0ID_FOLDERTYPE),
+                                                  mainFolderAttr, NULL, NULL);
 
-    // Crear cada TAG con sus variables
-    for (const auto &[tagName, variables] : tagVars)
-    {
-        UA_ObjectAttributes oAttr = UA_ObjectAttributes_default;
-        oAttr.displayName = UA_LOCALIZEDTEXT(const_cast<char*>("en"), 
-                                           const_cast<char*>(tagName.c_str()));
+    if (result != UA_STATUSCODE_GOOD) {
+        LOG_ERROR("Error creando carpeta principal: " << UA_StatusCode_name(result));
+        return;
+    }
 
-        UA_NodeId tagNodeId;
+    LOG_INFO("✅ Carpeta principal creada");
+
+    // 🗂️ MAPEAR VARIABLES POR GRUPOS - MANTENER ESTRUCTURA JERÁRQUICA
+    map<string, vector<Variable*>> groupedVariables;
+    
+    for (auto &var : config.variables) {
+        if (var.opcua_name.empty()) continue;
         
-        // 🔧 USAR NODEID NUMÉRICO ÚNICO PARA EVITAR DUPLICADOS
-        UA_StatusCode result = UA_Server_addObjectNode(
-            server,
-            UA_NODEID_NUMERIC(1, nodeCounter++),  // NodeId numérico único
-            UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
-            UA_NODEID_NUMERIC(0, UA_NS0ID_ORGANIZES),
-            UA_QUALIFIEDNAME(1, const_cast<char*>(tagName.c_str())),
-            UA_NODEID_NUMERIC(0, UA_NS0ID_BASEOBJECTTYPE),
-            oAttr, nullptr, &tagNodeId);
+        // 🔧 AGRUPAR POR TIPO DE TAG EN LUGAR DE TAG INDIVIDUAL
+        string groupName;
+        if (var.tag_name == "SimpleVars") {
+            groupName = "Simple Variables";
+        } else if (var.tag_name.find("API_") == 0) {
+            groupName = "API Tags";
+        } else if (var.tag_name.find("BATCH_") == 0) {
+            groupName = "Batch Tags";
+        } else if (var.tag_name.find("TT_") == 0) {
+            groupName = "Temperature Tags";
+        } else if (var.tag_name.find("PT_") == 0) {
+            groupName = "Pressure Tags";
+        } else if (var.tag_name.find("LT_") == 0) {
+            groupName = "Level Tags";
+        } else if (var.tag_name.find("FIT_") == 0) {
+            groupName = "Flow Control Tags";
+        } else {
+            groupName = "Other Tags";
+        }
+        
+        groupedVariables[groupName].push_back(&var);
+    }
 
-        if (result != UA_STATUSCODE_GOOD)
-        {
-            LOG_ERROR("Error creando TAG: " << tagName << " (código: " << result << ")");
+    LOG_INFO("📊 Variables agrupadas en " << groupedVariables.size() << " carpetas");
+
+    // 🏗️ CREAR CARPETAS Y NODOS POR GRUPO
+    int nodeCounter = 2000;  // Empezar desde 2000
+    int folderCounter = 1100; // Contadores para carpetas
+    int totalCreatedNodes = 0;
+
+    for (const auto &[groupName, variables] : groupedVariables) {
+        LOG_INFO("📁 Creando grupo: " << groupName << " (" << variables.size() << " variables)");
+
+        // 🏗️ CREAR CARPETA DEL GRUPO
+        UA_NodeId groupFolderNodeId = UA_NODEID_NUMERIC(1, folderCounter);
+        UA_ObjectAttributes groupFolderAttr = UA_ObjectAttributes_default;
+        groupFolderAttr.displayName = UA_LOCALIZEDTEXT("en-US", const_cast<char*>(groupName.c_str()));
+        
+        UA_StatusCode folderResult = UA_Server_addObjectNode(
+            server, 
+            groupFolderNodeId,
+            mainFolderNodeId,  // Padre: carpeta principal
+            UA_NODEID_NUMERIC(0, UA_NS0ID_ORGANIZES),
+            UA_QUALIFIEDNAME(1, const_cast<char*>(groupName.c_str())),
+            UA_NODEID_NUMERIC(0, UA_NS0ID_FOLDERTYPE),
+            groupFolderAttr, 
+            NULL, 
+            NULL
+        );
+
+        if (folderResult != UA_STATUSCODE_GOOD) {
+            LOG_ERROR("❌ Error creando carpeta grupo " << groupName << ": " << UA_StatusCode_name(folderResult));
+            folderCounter++;
             continue;
         }
 
-        LOG_DEBUG("✅ TAG creado: " << tagName);
+        LOG_DEBUG("✅ Carpeta grupo creada: " << groupName << " (NodeId: " << folderCounter << ")");
 
-        // Crear variables del TAG
-        for (auto var : variables)
-        {
-            // 🔧 VERIFICAR QUE LA VARIABLE TIENE NOMBRE VÁLIDO
-            if (var->opcua_name.empty()) {
-                LOG_DEBUG("⚠️ Variable sin nombre OPC-UA, omitiendo");
-                continue;
-            }
-
-            UA_VariableAttributes vAttr = UA_VariableAttributes_default;
-            vAttr.displayName = UA_LOCALIZEDTEXT(const_cast<char*>("en"), 
-                                               const_cast<char*>(var->var_name.c_str()));
-
-            UA_Variant_init(&vAttr.value);
-
-            // Configurar según tipo de variable
-            if (var->type == Variable::FLOAT)
-            {
-                float initialValue = 0.0f;
-                UA_Variant_setScalar(&vAttr.value, &initialValue, &UA_TYPES[UA_TYPES_FLOAT]);
-                vAttr.dataType = UA_TYPES[UA_TYPES_FLOAT].typeId;
-            }
-            else if (var->type == Variable::INT32)
-            {
-                int32_t initialValue = 0;
-                UA_Variant_setScalar(&vAttr.value, &initialValue, &UA_TYPES[UA_TYPES_INT32]);
-                vAttr.dataType = UA_TYPES[UA_TYPES_INT32].typeId;
-            }
-
-            vAttr.accessLevel = UA_ACCESSLEVELMASK_READ;
-            if (var->writable)
-            {
-                vAttr.accessLevel |= UA_ACCESSLEVELMASK_WRITE;
-            }
-
-            // 🔧 USAR NODEID NUMÉRICO ÚNICO PARA VARIABLES
-            UA_StatusCode varResult = UA_Server_addVariableNode(
-                server,
-                UA_NODEID_NUMERIC(1, nodeCounter++),  // NodeId numérico único
-                tagNodeId,
-                UA_NODEID_NUMERIC(0, UA_NS0ID_HASCOMPONENT),
-                UA_QUALIFIEDNAME(1, const_cast<char*>(var->var_name.c_str())),
-                UA_NODEID_NUMERIC(0, UA_NS0ID_BASEDATAVARIABLETYPE),
-                vAttr, nullptr, nullptr);
-
-            if (varResult == UA_STATUSCODE_GOOD)
-            {
-                var->has_node = true;
-                var->node_id = nodeCounter - 1;  // Guardar el NodeId usado
-
-                // 🔧 CONFIGURAR CALLBACKS SOLO PARA VARIABLES ESCRIBIBLES
-                if (var->writable)
-                {
-                    UA_ValueCallback callback;
-                    callback.onRead = readCallback;
-                    callback.onWrite = writeCallback;
-                    
-                    UA_NodeId nodeId = UA_NODEID_NUMERIC(1, var->node_id);
-                    UA_StatusCode cbResult = UA_Server_setVariableNode_valueCallback(
-                        server, nodeId, callback);
-                        
-                    if (cbResult != UA_STATUSCODE_GOOD) {
-                        LOG_ERROR("Error configurando callback para: " << var->opcua_name);
-                    } else {
-                        LOG_DEBUG("✅ Callback configurado para: " << var->opcua_name);
-                    }
+        // 🔧 CREAR VARIABLES DENTRO DEL GRUPO
+        int groupCreatedNodes = 0;
+        
+        for (auto var : variables) {
+            try {
+                // 🔧 CONFIGURAR COMO VARIABLE ESCALAR
+                UA_VariableAttributes attr = UA_VariableAttributes_default;
+                
+                // 🔧 USAR NOMBRE COMPLETO (tag.variable) EN LUGAR DE SOLO VARIABLE
+                string displayName;
+                if (var->tag_name == "SimpleVars") {
+                    displayName = var->var_name;  // Variables simples: solo el nombre
+                } else {
+                    displayName = var->tag_name + "." + var->var_name;  // Variables de tag: TT_11001.PV
                 }
                 
-                LOG_DEBUG("✅ Nodo creado: " << var->opcua_name << " (NodeId: " << var->node_id << ")");
-            }
-            else
-            {
-                LOG_ERROR("❌ Error creando variable: " << var->opcua_name << " (código: " << varResult << ")");
+                attr.displayName = UA_LOCALIZEDTEXT("en-US", const_cast<char*>(displayName.c_str()));
+                
+                // Descripción
+                std::string description = var->description.empty() ? 
+                    var->opcua_name : var->description;
+                attr.description = UA_LOCALIZEDTEXT("en-US", const_cast<char*>(description.c_str()));
+                
+                // 🔧 CONFIGURAR ACCESO
+                if (var->writable) {
+                    attr.accessLevel = UA_ACCESSLEVELMASK_READ | UA_ACCESSLEVELMASK_WRITE;
+                    attr.userAccessLevel = UA_ACCESSLEVELMASK_READ | UA_ACCESSLEVELMASK_WRITE;
+                } else {
+                    attr.accessLevel = UA_ACCESSLEVELMASK_READ;
+                    attr.userAccessLevel = UA_ACCESSLEVELMASK_READ;
+                }
+
+                // 🔧 CREAR VALOR INICIAL ESCALAR - CORREGIR TIPOS NULL
+                UA_Variant value;
+                UA_Variant_init(&value);
+
+                if (var->type == Variable::FLOAT) {
+                    float initialValue = 0.0f;
+                    UA_Variant_setScalar(&value, &initialValue, &UA_TYPES[UA_TYPES_FLOAT]);
+                    attr.dataType = UA_TYPES[UA_TYPES_FLOAT].typeId;
+                    attr.valueRank = UA_VALUERANK_SCALAR;
+                    
+                    LOG_DEBUG("🔧 Configurando variable FLOAT: " << displayName);
+                } else if (var->type == Variable::INT32) {
+                    int32_t initialValue = 0;
+                    UA_Variant_setScalar(&value, &initialValue, &UA_TYPES[UA_TYPES_INT32]);
+                    attr.dataType = UA_TYPES[UA_TYPES_INT32].typeId;
+                    attr.valueRank = UA_VALUERANK_SCALAR;
+                    
+                    LOG_DEBUG("🔧 Configurando variable INT32: " << displayName);
+                } else {
+                    // 🚨 CASO DE ERROR - TIPO DESCONOCIDO
+                    LOG_ERROR("❌ Tipo de variable desconocido para: " << displayName << " (tipo: " << var->type << ")");
+                    // Usar FLOAT como fallback
+                    float initialValue = 0.0f;
+                    UA_Variant_setScalar(&value, &initialValue, &UA_TYPES[UA_TYPES_FLOAT]);
+                    attr.dataType = UA_TYPES[UA_TYPES_FLOAT].typeId;
+                    attr.valueRank = UA_VALUERANK_SCALAR;
+                    var->type = Variable::FLOAT;  // Corregir tipo
+                }
+
+                attr.value = value;
+
+                // 🔧 CREAR NODO BAJO LA CARPETA DEL GRUPO
+                UA_NodeId nodeId = UA_NODEID_NUMERIC(1, nodeCounter);
+                
+                UA_StatusCode result = UA_Server_addVariableNode(
+                    server, 
+                    nodeId,
+                    groupFolderNodeId,  // 🏗️ PADRE: CARPETA DEL GRUPO
+                    UA_NODEID_NUMERIC(0, UA_NS0ID_ORGANIZES),
+                    UA_QUALIFIEDNAME(1, const_cast<char*>(displayName.c_str())),
+                    UA_NODEID_NUMERIC(0, UA_NS0ID_BASEDATAVARIABLETYPE),
+                    attr, 
+                    NULL, 
+                    NULL
+                );
+
+                if (result == UA_STATUSCODE_GOOD) {
+                    var->has_node = true;
+                    var->node_id = nodeCounter;
+                    groupCreatedNodes++;
+                    totalCreatedNodes++;
+                    nodeCounter++;
+
+                    // 🔧 AGREGAR CALLBACKS PARA VARIABLES ESCRIBIBLES
+                    if (var->writable) {
+                        UA_NodeId callbackNodeId = UA_NODEID_NUMERIC(1, var->node_id);
+                        
+                        UA_DataSource dataSource;
+                        dataSource.read = readCallback;
+                        dataSource.write = writeCallback;
+                        
+                        UA_StatusCode dsResult = UA_Server_setVariableNode_dataSource(server, callbackNodeId, dataSource);
+                        if (dsResult != UA_STATUSCODE_GOOD) {
+                            LOG_ERROR("❌ Error configurando DataSource para " << var->opcua_name);
+                        }
+                    }
+
+                    LOG_DEBUG("  ✅ " << displayName << " (NodeId: " << var->node_id << ", Tipo: " << 
+                             (var->type == Variable::FLOAT ? "FLOAT" : "INT32") << 
+                             (var->writable ? ", Escribible" : ", Solo lectura") << ")");
+                } else {
+                    LOG_ERROR("❌ Error creando nodo: " << displayName << " - " << UA_StatusCode_name(result));
+                }
+
+            } catch (const std::exception& e) {
+                LOG_ERROR("❌ Excepción creando nodo " << var->opcua_name << ": " << e.what());
             }
         }
+
+        LOG_INFO("  ✅ Grupo " << groupName << ": " << groupCreatedNodes << " variables creadas");
+        folderCounter++;
     }
 
-    cout << "✓ Nodos creados" << endl;
+    LOG_INFO("✅ Estructura jerárquica creada:");
+    LOG_INFO("   📁 Carpetas de grupo: " << groupedVariables.size());
+    LOG_INFO("   📊 Nodos totales creados: " << totalCreatedNodes);
+    LOG_INFO("   📝 Variables escribibles: " << config.getWritableVariableCount());
+    LOG_INFO("   🎯 Total configuradas: " << config.getTotalVariableCount());
 }
 
 // ============== ACTUALIZACIÓN DE DATOS ==============
