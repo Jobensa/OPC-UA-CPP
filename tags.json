@@ -284,20 +284,53 @@
     }
   ],
   "tbL_tags": [
-    
-     {
+    {
       "name": "TT_11001",
       "value_table": "TBL_TT_11001",
       "alarm_table": "TBL_TA_11001",
-      "variables": ["Input", "SetHH", "SetH", "SetL", "SetLL", "SIM_Value", "PV", "min", "max", "percent"],
-      "alarms": ["HH", "H", "L", "LL", "Color"]
+      "variables": [
+        "Input",
+        "SetHH",
+        "SetH",
+        "SetL",
+        "SetLL",
+        "SIM_Value",
+        "PV",
+        "min",
+        "max",
+        "percent"
+      ],
+      "alarms": [
+        "HH",
+        "H",
+        "L",
+        "LL",
+        "Color"
+      ]
     },
     {
       "name": "TT_11002",
       "value_table": "TBL_TT_11002",
       "alarm_table": "TBL_TA_11002",
-      "variables": ["Input", "SetHH", "SetH", "SetL", "SetLL", "SIM_Value", "PV", "min", "max", "percent"],
-      "alarms": ["HH", "H", "L", "LL", "Color"]
+      "variables": [
+        "Input",
+        "SetHH",
+        "SetH",
+        "SetL",
+        "SetLL",
+        "SIM_Value",
+        "PV",
+        "min",
+        "max",
+        "percent"
+      ],
+      "alarms": [
+        "HH",
+        "H",
+        "L",
+        "LL",
+        "Color"
+      ]
     },
     {
       "name": "TT_11003",
@@ -323,7 +356,7 @@
         "Color"
       ]
     },
-     {
+    {
       "name": "TT_11004",
       "value_table": "TBL_TT_11004",
       "alarm_table": "TBL_TA_11004",
@@ -755,6 +788,164 @@
         "Color"
       ]
     }
-
+  ],
+  "tbl_api": [
+    {
+      "name": "API_11001",
+      "value_table": "TBL_API_11001",
+      "variables": [
+        "No_Tiquete",
+        "Cliente",
+        "Producto",
+        "Presion",
+        "Temperatura",
+        "Precision_EQ",
+        "Densidad_(@60ºF)",
+        "Densidad_OBSV",
+        "Flujo_Indicado",
+        "Flujo_Bruto",
+        "Flujo_Neto_STD",
+        "Volumen_Indicado",
+        "Volumen_Bruto",
+        "Volumen_Neto_STD"
+      ]
+    },
+    {
+      "name": "API_11002",
+      "value_table": "TBL_API_11002",
+      "variables": [
+        "No_Tiquete",
+        "Cliente",
+        "Producto",
+        "Presion",
+        "Temperatura",
+        "Precision_EQ",
+        "Densidad_(@60ºF)",
+        "Densidad_OBSV",
+        "Flujo_Indicado",
+        "Flujo_Bruto",
+        "Flujo_Neto_STD",
+        "Volumen_Indicado",
+        "Volumen_Bruto",
+        "Volumen_Neto_STD"
+      ]
+    },
+    {
+      "name": "API_11003",
+      "value_table": "TBL_API_11003",
+      "variables": [
+        "No_Tiquete",
+        "Cliente",
+        "Producto",
+        "Presion",
+        "Temperatura",
+        "Precision_EQ",
+        "Densidad_(@60ºF)",
+        "Densidad_OBSV",
+        "Flujo_Indicado",
+        "Flujo_Bruto",
+        "Flujo_Neto_STD",
+        "Volumen_Indicado",
+        "Volumen_Bruto",
+        "Volumen_Neto_STD"
+      ]
+    },
+    {
+      "name": "API_11004",
+      "value_table": "TBL_API_11004",
+      "variables": [
+        "No_Tiquete",
+        "Cliente",
+        "Producto",
+        "Presion",
+        "Temperatura",
+        "Precision_EQ",
+        "Densidad_(@60ºF)",
+        "Densidad_OBSV",
+        "Flujo_Indicado",
+        "Flujo_Bruto",
+        "Flujo_Neto_STD",
+        "Volumen_Indicado",
+        "Volumen_Bruto",
+        "Volumen_Neto_STD"
+      ]
+    },
+    {
+      "name": "API_11005",
+      "value_table": "TBL_API_11005",
+      "variables": [
+        "No_Tiquete",
+        "Cliente",
+        "Producto",
+        "Presion",
+        "Temperatura",
+        "Precision_EQ",
+        "Densidad_(@60ºF)",
+        "Densidad_OBSV",
+        "Flujo_Indicado",
+        "Flujo_Bruto",
+        "Flujo_Neto_STD",
+        "Volumen_Indicado",
+        "Volumen_Bruto",
+        "Volumen_Neto_STD"
+      ]
+    },
+    {
+      "name": "API_11006",
+      "value_table": "TBL_API_11006",
+      "variables": [
+        "No_Tiquete",
+        "Cliente",
+        "Producto",
+        "Presion",
+        "Temperatura",
+        "Precision_EQ",
+        "Densidad_(@60ºF)",
+        "Densidad_OBSV",
+        "Flujo_Indicado",
+        "Flujo_Bruto",
+        "Flujo_Neto_STD",
+        "Volumen_Indicado",
+        "Volumen_Bruto",
+        "Volumen_Neto_STD"
+      ]
+    }
+  ],
+  "tbl_batch": [
+    {
+      "name": "Batch_11001",
+      "value_table": "TBL_BATCH_11001",
+      "variables": [
+        "No_Tiquete",
+        "Cliente",
+        "Producto",
+        "Presion",
+        "Temperatura",
+        "Precision_EQ",
+        "Densidad_(@60ºF)",
+        "Densidad_OBSV",
+        "Flujo_Indicado",
+        "Flujo_Bruto",
+        "Flujo_Neto_STD",
+        "Volumen_Indicado",
+        "Volumen_Bruto",
+        "Volumen_Neto_STD"
+      ]
+    }
+  ],
+  "tbl_pid": [
+    {
+      "name": "FIT_11001",
+      "value_table": "TBL_FIT_11001",
+      "variables": [
+        "PV",
+        "SP",
+        "CV",
+        "auto_manual",
+        "Kp",
+        "Ki",
+        "Kd"
+      ]
+    }
   ]
 }
