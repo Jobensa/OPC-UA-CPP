@@ -1,0 +1,1 @@
+/usr/bin/c++ -Wl,--dependency-file=CMakeFiles/pac_to_opcua.dir/link.d CMakeFiles/pac_to_opcua.dir/src/main.cpp.o CMakeFiles/pac_to_opcua.dir/src/opcua_server.cpp.o CMakeFiles/pac_to_opcua.dir/src/pac_control_client.cpp.o -o pac_to_opcua  -lopen62541 -lpthread -lpthread
