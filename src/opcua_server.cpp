@@ -5,11 +5,22 @@
 #include <thread>
 #include <chrono>
 #include <algorithm>
+#include <numeric>
+#include <cstring>  // 🔧 AGREGADO: Para std::memcpy
+#include "common.h"
 
 using namespace std;
 using json = nlohmann::json;
 
 // ============== VARIABLES GLOBALES ==============
+<<<<<<< HEAD
+=======
+UA_Server *server = nullptr;
+std::atomic<bool> running{true};
+bool server_running = true;
+std::atomic<bool> updating_internally{false}; // 🔧 CORREGIDO: Hacer atómica
+std::unique_ptr<PACControlClient> pacClient;
+>>>>>>> 018c2b7 (se adicionan tipos adicionales de datos, tbl_api, tbl_batch, tbl_pid)
 Config config;
 std::atomic<bool> running{true};
 std::atomic<bool> server_running{true};          // Para coordinación entre hilos
@@ -99,9 +110,13 @@ bool isWritableVariable(const std::string &varName)
 
 // ============== CONFIGURACIÓN ==============
 
+<<<<<<< HEAD
 // Reemplazar la función loadConfig() en línea ~106 por esta versión unificada:
 
 bool loadConfig(const string& configFile)
+=======
+bool loadConfig(const string& configFile)  // 🔧 CORREGIDO: Parámetro obligatorio
+>>>>>>> 018c2b7 (se adicionan tipos adicionales de datos, tbl_api, tbl_batch, tbl_pid)
 {
     cout << "📄 Cargando configuración desde: " << configFile << endl;
 
@@ -110,13 +125,20 @@ bool loadConfig(const string& configFile)
         ifstream file(configFile);
         if (!file.is_open())
         {
+<<<<<<< HEAD
             // Intentar archivo alternativo en raíz
             file.open("tags.json");
             if (!file.is_open()) {
+=======
+            // Intentar archivo alternativo
+            ifstream fallbackFile("tags.json");
+            if (!fallbackFile.is_open()) {
+>>>>>>> 018c2b7 (se adicionan tipos adicionales de datos, tbl_api, tbl_batch, tbl_pid)
                 cout << "❌ No se pudo abrir " << configFile << " ni tags.json" << endl;
                 return false;
             }
             cout << "📄 Usando archivo alternativo: tags.json" << endl;
+<<<<<<< HEAD
         }
 
         json configJson;
@@ -239,6 +261,23 @@ bool loadConfig(const string& configFile)
              << config.api_tags.size() << " api_tags, "
              << config.variables.size() << " variables totales" << endl;
         return true;
+=======
+            
+            // 🔧 CORREGIDO: Leer el archivo correctamente
+            json configJson;
+            fallbackFile >> configJson;
+            fallbackFile.close();
+            
+            // Procesar la configuración desde el JSON leído
+            return processConfigFromJson(configJson);
+        }
+
+        json configJson;
+        file >> configJson;
+        file.close();  // 🔧 AGREGADO: Cerrar archivo explícitamente
+
+        return processConfigFromJson(configJson);
+>>>>>>> 018c2b7 (se adicionan tipos adicionales de datos, tbl_api, tbl_batch, tbl_pid)
     }
     catch (const exception &e)
     {
@@ -247,6 +286,111 @@ bool loadConfig(const string& configFile)
     }
 }
 
+<<<<<<< HEAD
+=======
+// 🆕 NUEVA FUNCIÓN: Procesar configuración desde JSON
+bool processConfigFromJson(const json& configJson) {
+    // Configuración del PAC
+    if (configJson.contains("pac_config"))
+    {
+        auto &pac = configJson["pac_config"];
+        config.pac_ip = pac.value("ip", "192.168.1.30");
+        config.pac_port = pac.value("port", 22001);
+    }
+
+    // Configuración del servidor
+    if (configJson.contains("server_config"))
+    {
+        auto &srv = configJson["server_config"];
+        config.opcua_port = srv.value("opcua_port", 4840);
+        config.update_interval_ms = srv.value("update_interval_ms", 2000);
+        config.server_name = srv.value("server_name", "PAC Control SCADA Server");
+    }
+
+    // Limpiar configuración anterior
+    config.tags.clear();
+    config.api_tags.clear();
+    config.simple_variables.clear();
+    config.variables.clear();
+
+    // Cargar TAGs tradicionales
+    if (configJson.contains("tbL_tags"))
+    {
+        for (const auto &tagJson : configJson["tbL_tags"])
+        {
+            Tag tag;
+            tag.name = tagJson.value("name", "");
+            tag.value_table = tagJson.value("value_table", "");
+            tag.alarm_table = tagJson.value("alarm_table", "");
+
+            if (tagJson.contains("variables"))
+            {
+                for (const auto &var : tagJson["variables"])
+                {
+                    tag.variables.push_back(var);
+                }
+            }
+
+            if (tagJson.contains("alarms"))
+            {
+                for (const auto &alarm : tagJson["alarms"])
+                {
+                    tag.alarms.push_back(alarm);
+                }
+            }
+
+            config.tags.push_back(tag);
+        }
+        cout << "✓ Cargados " << config.tags.size() << " TBL_tags" << endl;
+    }
+
+    // 🆕 Cargar TBL_tags_api
+    if (configJson.contains("tbl_tags_api"))
+    {
+        for (const auto &apiJson : configJson["tbl_tags_api"])
+        {
+            APITag apiTag;
+            apiTag.name = apiJson.value("name", "");
+            apiTag.value_table = apiJson.value("value_table", "");
+            
+            if (apiJson.contains("variables"))
+            {
+                for (const auto &var : apiJson["variables"])
+                {
+                    apiTag.variables.push_back(var);
+                }
+            }
+
+            config.api_tags.push_back(apiTag);
+        }
+        cout << "✓ Cargados " << config.api_tags.size() << " API_tags" << endl;
+    }
+
+    // Cargar variables simples individuales
+    if (configJson.contains("simple_variables"))
+    {
+        for (const auto &varJson : configJson["simple_variables"])
+        {
+            SimpleVariable simpleVar;
+            simpleVar.name = varJson.value("name", "");
+            simpleVar.pac_source = varJson.value("pac_source", "");
+            simpleVar.type = varJson.value("type", "FLOAT");
+            simpleVar.writable = varJson.value("writable", false);
+            config.simple_variables.push_back(simpleVar);
+        }
+        cout << "✓ Cargadas " << config.simple_variables.size() << " variables simples" << endl;
+    }
+
+    // Procesar todas las estructuras en variables unificadas
+    processConfigIntoVariables();
+
+    cout << "✓ Configuración cargada: " << config.tags.size() << " tags, "
+         << config.api_tags.size() << " api_tags, "
+         << config.variables.size() << " variables totales" << endl;
+    return true;
+}
+
+>>>>>>> 018c2b7 (se adicionan tipos adicionales de datos, tbl_api, tbl_batch, tbl_pid)
 void processConfigIntoVariables()
 {
     LOG_INFO("🔧 Procesando configuración en variables...");
@@ -344,6 +488,7 @@ void processConfigIntoVariables()
         config.variables.push_back(var);
         LOG_DEBUG("  📌 " << var.opcua_name << " → " << var.pac_source << (var.writable ? " (R/W)" : " (R)"));
     }
+<<<<<<< HEAD
 
     for(const auto &batchTag : config.batch_tags) 
     {
@@ -371,6 +516,8 @@ void processConfigIntoVariables()
         
         LOG_INFO("✅ BATCH " << batchTag.name << ": " << batchTag.variables.size() << " variables creadas");
     }
+=======
+>>>>>>> 018c2b7 (se adicionan tipos adicionales de datos, tbl_api, tbl_batch, tbl_pid)
     
     LOG_INFO("✅ Procesamiento completado: " << config.variables.size() << " variables totales");
     
@@ -789,11 +936,10 @@ void updateData()
 
     while (running && server_running)
     {
-        // Solo log cuando inicia ciclo completo
         LOG_DEBUG("Iniciando ciclo de actualización PAC");
         
-        // 🔒 VERIFICAR SI ES SEGURO HACER ACTUALIZACIONES
-        if (updating_internally) {
+        // 🔒 VERIFICAR SI ES SEGURO HACER ACTUALIZACIONES - Usar load()
+        if (updating_internally.load()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
         }
@@ -802,11 +948,11 @@ void updateData()
         {
             DEBUG_INFO("🔄 Iniciando actualización de datos del PAC");
             
-            // ⚠️ MARCAR ACTUALIZACIÓN EN PROGRESO
-            updating_internally = true;
+            // ⚠️ MARCAR ACTUALIZACIÓN EN PROGRESO - Usar store()
+            updating_internally.store(true);
 
             // 🔒 ACTIVAR BANDERA DE ESCRITURA INTERNA DEL SERVIDOR
-            server_writing_internally = true;
+            server_writing_internally.store(true);
 
             // Separar variables por tipo
             vector<Variable *> simpleVars;             // Variables individuales (F_xxx, I_xxx)
@@ -974,11 +1120,11 @@ void updateData()
                 this_thread::sleep_for(chrono::milliseconds(50));
             }
 
-            // 🔓 DESACTIVAR BANDERAS
-            server_writing_internally = false;
-            updating_internally = false;
+            // 🔓 DESACTIVAR BANDERAS - Usar store()
+            server_writing_internally.store(false);
+            updating_internally.store(false);
             
-            DEBUG_INFO("✅ Actualización completada: " << tables_updated << " tablas procesadas");
+            DEBUG_INFO("✅ Actualización completada");
         }
         else
         {
