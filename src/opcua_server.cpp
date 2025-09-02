@@ -6,7 +6,7 @@
 #include <chrono>
 #include <algorithm>
 #include <numeric>
-#include <cstring>  // 🔧 AGREGADO: Para std::memcpy
+#include <cstring>
 #include "common.h"
 
 using namespace std;
@@ -14,23 +14,17 @@ using json = nlohmann::json;
 
 // ============== VARIABLES GLOBALES ==============
 UA_Server *server = nullptr;
-std::atomic<bool> running{true};
-bool server_running = true;
-std::atomic<bool> updating_internally{false}; // 🔧 CORREGIDO: Hacer atómica
 std::unique_ptr<PACControlClient> pacClient;
 Config config;
+
+// Variables atómicas para control de hilos
 std::atomic<bool> running{true};
-std::atomic<bool> server_running{true};          // Para coordinación entre hilos
-bool server_running_flag = true;                 // 🆕 Para UA_Server_run() (requiere bool*)
+std::atomic<bool> server_running{true};
 std::atomic<bool> updating_internally{false};
-//std::atomic<bool> server_writing_internally{false};  // Solo una declaración
-
-// Variables del servidor OPC-UA
-UA_Server *server = nullptr;
-std::unique_ptr<PACControlClient> pacClient;
-
-// NUEVA: Bandera para distinguir escrituras internas del servidor
 std::atomic<bool> server_writing_internally{false};
+
+// Variable normal para UA_Server_run (requiere bool*)
+bool server_running_flag = true;
 
 // ============== FUNCIONES AUXILIARES ==============
 

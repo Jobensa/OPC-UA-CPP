@@ -44,10 +44,11 @@ struct APITag {
     std::vector<std::string> variables;  // ["IV", "NSV", "CPL", "CTL"]
 };
 
+// 🆕 Configuración de BATCH TAG  
 struct BatchTag {
     std::string name;            // "BATCH_B1"
     std::string value_table;     // "TBL_BATCH_B1"     
-    std::vector<std::string> variables;  // ["IV", "NSV", "CPL", "CTL"]
+    std::vector<std::string> variables;  // ["Tiquete", "Cliente", etc.]
 };
 
 // Variable simple individual
@@ -70,9 +71,9 @@ struct Config {
     // Estructuras de datos
     std::vector<Tag> tags;                    // TBL_tags tradicionales
     std::vector<APITag> api_tags;            // 🆕 TBL_tags_api  
+    std::vector<BatchTag> batch_tags;        // 🆕 BATCH_tags
     std::vector<SimpleVariable> simple_variables;  // Variables individuales
     std::vector<Variable> variables;         // Variables procesadas finales
-    std::vector<BatchTag> batch_tags;        // 🆕 BATCH_tag s
 };
 
 // ============== VARIABLES GLOBALES ==============
