@@ -794,86 +794,68 @@
       "name": "API_11001",
       "value_table": "TBL_API_11001",
       "variables": [
-        "No_Tiquete",
-        "Cliente",
-        "Producto",
-        "Presion",
-        "Temperatura",
-        "Precision_EQ",
-        "Densidad_(@60ºF)",
-        "Densidad_OBSV",
-        "Flujo_Indicado",
-        "Flujo_Bruto",
-        "Flujo_Neto_STD",
-        "Volumen_Indicado",
-        "Volumen_Bruto",
-        "Volumen_Neto_STD"
+        "IV",
+        "NSV",
+        "CPL",
+        "CTL"
       ]
     },
     {
       "name": "API_11002",
       "value_table": "TBL_API_11002",
       "variables": [
-        "No_Tiquete",
-        "Cliente",
-        "Producto",
-        "Presion",
-        "Temperatura",
-        "Precision_EQ",
-        "Densidad_(@60ºF)",
-        "Densidad_OBSV",
-        "Flujo_Indicado",
-        "Flujo_Bruto",
-        "Flujo_Neto_STD",
-        "Volumen_Indicado",
-        "Volumen_Bruto",
-        "Volumen_Neto_STD"
+        "IV",
+        "NSV",
+        "CPL",
+        "CTL"
       ]
     },
     {
       "name": "API_11003",
       "value_table": "TBL_API_11003",
       "variables": [
-        "No_Tiquete",
-        "Cliente",
-        "Producto",
-        "Presion",
-        "Temperatura",
-        "Precision_EQ",
-        "Densidad_(@60ºF)",
-        "Densidad_OBSV",
-        "Flujo_Indicado",
-        "Flujo_Bruto",
-        "Flujo_Neto_STD",
-        "Volumen_Indicado",
-        "Volumen_Bruto",
-        "Volumen_Neto_STD"
+          "IV",
+          "NSV",
+          "CPL",
+          "CTL"
       ]
     },
     {
       "name": "API_11004",
       "value_table": "TBL_API_11004",
       "variables": [
-        "No_Tiquete",
-        "Cliente",
-        "Producto",
-        "Presion",
-        "Temperatura",
-        "Precision_EQ",
-        "Densidad_(@60ºF)",
-        "Densidad_OBSV",
-        "Flujo_Indicado",
-        "Flujo_Bruto",
-        "Flujo_Neto_STD",
-        "Volumen_Indicado",
-        "Volumen_Bruto",
-        "Volumen_Neto_STD"
+          "IV",
+          "NSV",
+          "CPL",
+          "CTL"
       ]
     },
     {
       "name": "API_11005",
       "value_table": "TBL_API_11005",
       "variables": [
+        "IV",
+        "NSV",
+        "CPL",
+        "CTL"
+      ]
+    },
+    {
+      "name": "API_11006",
+      "value_table": "TBL_API_11006",
+      "variables": [
+        "IV",
+        "NSV",
+        "CPL",
+        "CTL"
+      ]
+    }
+  ],
+  "tbl_batch": [
+    {
+      "name": "BATCH_B1",
+      "value_table": "TBL_BATCH_B1",
+      "variables": [
         "No_Tiquete",
         "Cliente",
         "Producto",
@@ -891,8 +873,8 @@
       ]
     },
     {
-      "name": "API_11006",
-      "value_table": "TBL_API_11006",
+      "name": "BATCH_B2",
+      "value_table": "TBL_BATCH_B2",
       "variables": [
         "No_Tiquete",
         "Cliente",
@@ -910,28 +892,7 @@
         "Volumen_Neto_STD"
       ]
     }
-  ],
-  "tbl_batch": [
-    {
-      "name": "Batch_11001",
-      "value_table": "TBL_BATCH_11001",
-      "variables": [
-        "No_Tiquete",
-        "Cliente",
-        "Producto",
-        "Presion",
-        "Temperatura",
-        "Precision_EQ",
-        "Densidad_(@60ºF)",
-        "Densidad_OBSV",
-        "Flujo_Indicado",
-        "Flujo_Bruto",
-        "Flujo_Neto_STD",
-        "Volumen_Indicado",
-        "Volumen_Bruto",
-        "Volumen_Neto_STD"
-      ]
-    }
+    
   ],
   "tbl_pid": [
     {

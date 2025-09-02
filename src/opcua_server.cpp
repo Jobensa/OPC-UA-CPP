@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <numeric>
 #include <cstring>
+#include <stdexcept>  // 🔧 AGREGAR PARA std::exception
 
 using namespace std;
 using json = nlohmann::json;
@@ -29,10 +30,8 @@ bool server_running_flag = true;
 
 int getVariableIndex(const std::string &varName)
 {
-    // Mapeo correcto según la estructura real de las tablas PAC:
-    // 0: Input/Value, 1: SetHH, 2: SetH, 3: SetL, 4: SetLL, 5: SIM_Value
-    // 6: PV, 7: min, 8: max, 9: percent
-
+    // ========== VARIABLES DE TABLAS TRADICIONALES (TT, LT, DT, PT) ==========
+    // Estructura: [Input, SetHH, SetH, SetL, SetLL, SIM_Value, PV, min, max, percent]
     if (varName == "Input") return 0;
     if (varName == "SetHH") return 1;
     if (varName == "SetH") return 2;
@@ -44,49 +43,89 @@ int getVariableIndex(const std::string &varName)
     if (varName == "max") return 8;
     if (varName == "percent") return 9;
 
-    // Compatibilidad con nombres con mayúsculas
+    // ========== VARIABLES DE ALARMA (TBL_TA_, TBL_LA_, TBL_DA_, TBL_PA_) ==========
+    // Estructura: [HH, H, L, LL, Color]
+    if (varName == "HH" || varName == "ALARM_HH") return 0;
+    if (varName == "H" || varName == "ALARM_H") return 1;
+    if (varName == "L" || varName == "ALARM_L") return 2;
+    if (varName == "LL" || varName == "ALARM_LL") return 3;
+    if (varName == "Color" || varName == "ALARM_Color") return 4;
+
+    // ========== VARIABLES DE PID (TBL_FIT_) ==========
+    // Estructura: [PV, SP, CV, auto_manual, Kp, Ki, Kd]
+    if (varName == "SP") return 1;   // SetPoint
+    if (varName == "CV") return 2;   // Control Value
+    if (varName == "auto_manual") return 3;
+    if (varName == "Kp") return 4;
+    if (varName == "Ki") return 5;
+    if (varName == "Kd") return 6;
+
+    // Compatibilidad con nombres alternativos
     if (varName == "Min") return 7;
     if (varName == "Max") return 8;
     if (varName == "Percent") return 9;
 
-    // Variables de alarma - estructura TBL_TA_XXXXX (INT32)
-    // 0: Bits HH, 1: Bits H, 2: Bits L, 3: Bits LL, 4: Color_alarm
-    if (varName == "HH") return 0;
-    if (varName == "H") return 1;
-    if (varName == "L") return 2;
-    if (varName == "LL") return 3;
-    if (varName == "Color") return 4;
-
-    // Compatibilidad con nombres alternativos
-    if (varName == "ALARM_HH") return 0;
-    if (varName == "ALARM_H") return 1;
-    if (varName == "ALARM_L") return 2;
-    if (varName == "ALARM_LL") return 3;
-    if (varName == "COLOR") return 4;
-
+    LOG_DEBUG("⚠️ Índice no encontrado para variable: " << varName << " (usando -1)");
     return -1;
 }
 
 int getAPIVariableIndex(const std::string &varName) {
-    if (varName == "IV") return 0;
-    if (varName == "NSV") return 1;
-    if (varName == "CPL") return 2;
-    if (varName == "CTL") return 3;
+    // ========== VARIABLES DE API SEGÚN TU JSON ==========
+    // Estructura de tbl_api: ["IV", "NSV", "CPL", "CTL"]
+    
+    if (varName == "IV") return 0;   // Indicated Value
+    if (varName == "NSV") return 1;  // Net Standard Volume  
+    if (varName == "CPL") return 2;  // Compensación de Presión y Línea
+    if (varName == "CTL") return 3;  // Control
+    
+    LOG_DEBUG("⚠️ Índice API no encontrado para: " << varName);
     return -1;
 }
 
 int getBatchVariableIndex(const std::string &varName)
 {
-    // Implementar según necesidades
+    // ========== VARIABLES DE BATCH SEGÚN TU JSON ==========
+    // Estructura: ["No_Tiquete", "Cliente", "Producto", "Presion", ...]
+    
+    if (varName == "No_Tiquete") return 0;
+    if (varName == "Cliente") return 1;
+    if (varName == "Producto") return 2;
+    if (varName == "Presion") return 3;
+    if (varName == "Temperatura") return 4;
+    if (varName == "Precision_EQ") return 5;
+    if (varName == "Densidad_(@60ºF)") return 6;
+    if (varName == "Densidad_OBSV") return 7;
+    if (varName == "Flujo_Indicado") return 8;
+    if (varName == "Flujo_Bruto") return 9;
+    if (varName == "Flujo_Neto_STD") return 10;
+    if (varName == "Volumen_Indicado") return 11;
+    if (varName == "Volumen_Bruto") return 12;
+    if (varName == "Volumen_Neto_STD") return 13;
+    
+    LOG_DEBUG("⚠️ Índice BATCH no encontrado para: " << varName);
     return -1;
 }
 
 bool isWritableVariable(const std::string &varName)
 {
-    return varName.find("SET") == 0 ||
-           varName.find("Set") == 0 ||
-           varName.find("SIM_") == 0 ||
-           varName.find("E_") == 0;
+    // Variables escribibles tradicionales
+    bool writable = varName.find("Set") == 0 ||           // SetHH, SetH, SetL, SetLL
+                   varName.find("SIM_") == 0 ||          // SIM_Value
+                   varName.find("SP") != string::npos ||  // SP (SetPoint PID)
+                   varName.find("CV") != string::npos ||  // CV (Control Value PID)
+                   varName.find("Kp") != string::npos ||  // Parámetros PID
+                   varName.find("Ki") != string::npos ||
+                   varName.find("Kd") != string::npos ||
+                   varName.find("auto_manual") != string::npos ||
+                   // 🔧 AGREGAR VARIABLES API ESCRIBIBLES
+                   varName == "CPL" ||                    // Compensación API
+                   varName == "CTL";                      // Control API
+
+    if (writable) {
+        LOG_DEBUG("📝 Variable escribible detectada: " << varName);
+    }
+    
+    return writable;
 }
 
 // ============== CONFIGURACIÓN ==============
@@ -157,51 +196,45 @@ bool processConfigFromJson(const json& configJson) {
         config.server_name = srv.value("server_name", "PAC Control SCADA Server");
     }
 
-    // 🔧 LIMPIAR CONFIGURACIÓN ANTERIOR USANDO MÉTODO UNIFICADO
+    // 🔧 LIMPIAR CONFIGURACIÓN ANTERIOR
     config.clear();
 
-    // Procesar simple_variables
+    // 📋 PROCESAR SIMPLE_VARIABLES
     if (configJson.contains("simple_variables")) {
         LOG_INFO("🔍 Procesando simple_variables...");
         
-        int varIndex = 0;
         for (const auto &varJson : configJson["simple_variables"]) {
-            if (!varJson.contains("opcua_name") || !varJson.contains("pac_source")) {
-                if (varJson.contains("description")) {
-                    SimpleVariable simpleVar;
-                    simpleVar.name = "SimpleVar_" + to_string(varIndex);
-                    simpleVar.pac_source = "TBL_SIMPLE:" + to_string(varIndex);
-                    simpleVar.type = "FLOAT";
-                    simpleVar.writable = false;
-                    simpleVar.description = varJson["description"];
-                    
-                    config.simple_variables.push_back(simpleVar);
-                    LOG_DEBUG("✅ Variable simple creada: " << simpleVar.name << " (" << simpleVar.description << ")");
-                } else {
-                    LOG_DEBUG("⚠️ Variable simple sin datos suficientes, omitiendo");
-                }
-            } else {
+            // 🔧 SOLO PROCESAR SI TIENE CAMPOS REQUERIDOS
+            if (varJson.contains("opcua_name") && varJson.contains("pac_source")) {
                 SimpleVariable simpleVar;
                 simpleVar.name = varJson.value("opcua_name", "");
                 simpleVar.pac_source = varJson.value("pac_source", "");
                 simpleVar.type = varJson.value("type", "FLOAT");
                 simpleVar.writable = varJson.value("writable", false);
-                
-                if (varJson.contains("description")) {
-                    simpleVar.description = varJson["description"];
-                }
+                simpleVar.description = varJson.value("description", "");
                 
                 config.simple_variables.push_back(simpleVar);
-                LOG_DEBUG("✅ Variable simple cargada: " << simpleVar.name);
+                LOG_DEBUG("✅ Variable simple: " << simpleVar.name);
+            } else if (varJson.contains("description")) {
+                // 🔧 CREAR VARIABLE PLACEHOLDER CON DESCRIPCIÓN
+                SimpleVariable simpleVar;
+                simpleVar.name = "Placeholder_" + to_string(config.simple_variables.size());
+                simpleVar.pac_source = "F_PLACEHOLDER_" + to_string(config.simple_variables.size());
+                simpleVar.type = "FLOAT";
+                simpleVar.writable = false;
+                simpleVar.description = varJson.value("description", "");
+                
+                config.simple_variables.push_back(simpleVar);
+                LOG_DEBUG("✅ Variable placeholder: " << simpleVar.name << " (" << simpleVar.description << ")");
             }
-            
-            varIndex++;
         }
-        cout << "✓ Cargadas " << config.simple_variables.size() << " variables simples" << endl;
+        LOG_INFO("✓ Cargadas " << config.simple_variables.size() << " variables simples");
     }
 
-    // Cargar TAGs tradicionales
+    // 📊 PROCESAR TBL_TAGS (tradicionales - TT, LT, DT, PT)
     if (configJson.contains("tbL_tags")) {
+        LOG_INFO("🔍 Procesando tbL_tags...");
+        
         for (const auto &tagJson : configJson["tbL_tags"]) {
             Tag tag;
             tag.name = tagJson.value("name", "");
@@ -214,9 +247,80 @@ bool processConfigFromJson(const json& configJson) {
                 }
             }
 
+            if (tagJson.contains("alarms")) {
+                for (const auto &alarm : tagJson["alarms"]) {
+                    tag.alarms.push_back(alarm);
+                }
+            }
+
             config.tags.push_back(tag);
+            LOG_DEBUG("✅ TBL_tag: " << tag.name << " (" << tag.variables.size() << " vars, " << tag.alarms.size() << " alarms)");
         }
-        cout << "✓ Cargados " << config.tags.size() << " TBL_tags" << endl;
+        LOG_INFO("✓ Cargados " << config.tags.size() << " TBL_tags");
+    }
+
+    // 🔧 PROCESAR TBL_API (tablas API) - CORREGIR NOMBRE DE SECCIÓN
+    if (configJson.contains("tbl_api")) {  // 🔧 ERA "tbl_api" NO "tbl_api"
+        LOG_INFO("🔍 Procesando tbl_api...");
+        
+        for (const auto &apiJson : configJson["tbl_api"]) {
+            APITag apiTag;
+            apiTag.name = apiJson.value("name", "");
+            apiTag.value_table = apiJson.value("value_table", "");
+
+            if (apiJson.contains("variables")) {
+                for (const auto &var : apiJson["variables"]) {
+                    apiTag.variables.push_back(var);
+                }
+            }
+
+            config.api_tags.push_back(apiTag);
+            LOG_DEBUG("✅ API_tag: " << apiTag.name << " (" << apiTag.variables.size() << " variables)");
+        }
+        LOG_INFO("✓ Cargados " << config.api_tags.size() << " API_tags");
+    }
+
+    // 📦 PROCESAR TBL_BATCH (tablas de lote) - CORREGIR NOMBRE DE SECCIÓN
+    if (configJson.contains("tbl_batch")) {  // 🔧 YA ESTÁ CORRECTO
+        LOG_INFO("🔍 Procesando tbl_batch...");
+        
+        for (const auto &batchJson : configJson["tbl_batch"]) {
+            BatchTag batchTag;
+            batchTag.name = batchJson.value("name", "");
+            batchTag.value_table = batchJson.value("value_table", "");
+
+            if (batchJson.contains("variables")) {
+                for (const auto &var : batchJson["variables"]) {
+                    batchTag.variables.push_back(var);
+                }
+            }
+
+            config.batch_tags.push_back(batchTag);
+            LOG_DEBUG("✅ Batch_tag: " << batchTag.name << " (" << batchTag.variables.size() << " variables)");
+        }
+        LOG_INFO("✓ Cargados " << config.batch_tags.size() << " Batch_tags");
+    }
+
+    // 🎛️ PROCESAR TBL_PID (controladores PID)
+    if (configJson.contains("tbl_pid")) {
+        LOG_INFO("🔍 Procesando tbl_pid...");
+        
+        for (const auto &pidJson : configJson["tbl_pid"]) {
+            Tag pidTag;  // Usar estructura Tag normal
+            pidTag.name = pidJson.value("name", "");
+            pidTag.value_table = pidJson.value("value_table", "");
+            pidTag.alarm_table = "";  // Los PID normalmente no tienen alarmas
+
+            if (pidJson.contains("variables")) {
+                for (const auto &var : pidJson["variables"]) {
+                    pidTag.variables.push_back(var);
+                }
+            }
+
+            config.tags.push_back(pidTag);  // Agregar a tags normales
+            LOG_DEBUG("✅ PID_tag: " << pidTag.name << " (" << pidTag.variables.size() << " variables)");
+        }
+        LOG_INFO("✓ Cargados PID_tags como tags tradicionales");
     }
 
     // Procesar configuración en variables
@@ -229,7 +333,7 @@ void processConfigIntoVariables()
 {
     LOG_INFO("🔧 Procesando configuración en variables...");
     
-    // Crear variables desde simple_variables
+    // 📋 CREAR VARIABLES DESDE SIMPLE_VARIABLES
     for (const auto &simpleVar : config.simple_variables) {
         if (simpleVar.name.empty()) {
             LOG_DEBUG("⚠️ Variable simple sin nombre, omitiendo");
@@ -240,7 +344,7 @@ void processConfigIntoVariables()
         var.opcua_name = simpleVar.name;
         var.tag_name = "SimpleVars";
         var.var_name = simpleVar.name;
-        var.pac_source = simpleVar.pac_source;
+        var.pac_source = simpleVar.pac_source;  // F_xxx o I_xxx directo
         var.type = (simpleVar.type == "INT32") ? Variable::INT32 : Variable::FLOAT;
         var.writable = simpleVar.writable;
         var.description = simpleVar.description;
@@ -248,8 +352,9 @@ void processConfigIntoVariables()
         config.variables.push_back(var);
     }
     
-    // Crear variables desde TAGs tradicionales
+    // 📊 CREAR VARIABLES DESDE TBL_TAGS (tradicionales - TT, LT, DT, PT, PID)
     for (const auto &tag : config.tags) {
+        // Variables de valores
         for (const auto &varName : tag.variables) {
             Variable var;
             var.opcua_name = tag.name + "." + varName;
@@ -257,16 +362,94 @@ void processConfigIntoVariables()
             var.var_name = varName;
             var.pac_source = tag.value_table + ":" + to_string(getVariableIndex(varName));
             var.type = (varName.find("Color") != string::npos || 
-                       varName.find("HH") != string::npos) ? Variable::INT32 : Variable::FLOAT;
+                       varName.find("HH") != string::npos ||
+                       varName.find("auto_manual") != string::npos) ? Variable::INT32 : Variable::FLOAT;
             var.writable = isWritableVariable(varName);
             var.table_index = getVariableIndex(varName);
             
             config.variables.push_back(var);
         }
+        
+        // Variables de alarmas (si existen)
+        if (!tag.alarm_table.empty()) {
+            for (const auto &alarmName : tag.alarms) {
+                Variable var;
+                var.opcua_name = tag.name + ".ALARM_" + alarmName;
+                var.tag_name = tag.name;
+                var.var_name = "ALARM_" + alarmName;
+                var.pac_source = tag.alarm_table + ":" + to_string(getVariableIndex(alarmName));
+                var.type = Variable::INT32;  // Las alarmas son siempre INT32
+                var.writable = false;        // Las alarmas son solo lectura
+                var.table_index = getVariableIndex(alarmName);
+                
+                config.variables.push_back(var);
+            }
+        }
     }
     
-    LOG_INFO("✅ Procesamiento completado: " << config.getTotalVariableCount() << " variables totales");
-    LOG_INFO("📝 Variables escribibles: " << config.getWritableVariableCount());
+    // 🔧 CREAR VARIABLES DESDE API_TAGS CON ÍNDICES CORRECTOS
+    for (const auto &apiTag : config.api_tags) {
+        for (size_t i = 0; i < apiTag.variables.size(); i++) {
+            const auto &varName = apiTag.variables[i];
+            
+            Variable var;
+            var.opcua_name = apiTag.name + "." + varName;
+            var.tag_name = apiTag.name;
+            var.var_name = varName;
+            var.pac_source = apiTag.value_table + ":" + to_string(getAPIVariableIndex(varName));  // 🔧 USAR FUNCIÓN CORRECTA
+            
+            // 🔧 TODAS LAS VARIABLES API SON FLOAT SEGÚN DISEÑO TÍPICO
+            var.type = Variable::FLOAT;
+            
+            // 🔧 DETERMINAR ESCRITURA SEGÚN VARIABLE
+            if (varName == "CPL" || varName == "CTL") {
+                var.writable = true;   // CPL y CTL son escribibles (compensación y control)
+            } else {
+                var.writable = false;  // IV y NSV son solo lectura (valores calculados)
+            }
+            
+            var.table_index = getAPIVariableIndex(varName);
+            
+            config.variables.push_back(var);
+            
+            LOG_DEBUG("✅ API variable: " << var.opcua_name << " (índice: " << var.table_index << ", writable: " << var.writable << ")");
+        }
+    }
+    
+    // 📦 CREAR VARIABLES DESDE BATCH_TAGS CON ÍNDICES CORRECTOS
+    for (const auto &batchTag : config.batch_tags) {
+        for (size_t i = 0; i < batchTag.variables.size(); i++) {
+            const auto &varName = batchTag.variables[i];
+            
+            Variable var;
+            var.opcua_name = batchTag.name + "." + varName;
+            var.tag_name = batchTag.name;
+            var.var_name = varName;
+            var.pac_source = batchTag.value_table + ":" + to_string(getBatchVariableIndex(varName));  // 🔧 USAR FUNCIÓN CORRECTA
+            
+            // 🔧 DETERMINAR TIPO SEGÚN NOMBRE
+            if (varName == "No_Tiquete" || varName == "Cliente" || varName == "Producto") {
+                var.type = Variable::INT32;  // IDs y códigos
+            } else {
+                var.type = Variable::FLOAT;  // Valores de proceso
+            }
+            
+            var.writable = false;  // Batch tags normalmente son solo lectura (datos históricos)
+            var.table_index = getBatchVariableIndex(varName);
+            
+            config.variables.push_back(var);
+            
+            LOG_DEBUG("✅ Batch variable: " << var.opcua_name << " (índice: " << var.table_index << ", tipo: " << (var.type == Variable::FLOAT ? "FLOAT" : "INT32") << ")");
+        }
+    }
+    
+    LOG_INFO("✅ Procesamiento completado:");
+    LOG_INFO("   📋 Variables simples: " << config.simple_variables.size());
+    LOG_INFO("   📊 TBL_tags: " << config.tags.size());
+    LOG_INFO("   🔧 API_tags: " << config.api_tags.size());
+    LOG_INFO("   📦 Batch_tags: " << config.batch_tags.size());
+    LOG_INFO("   🎯 Total variables OPC-UA: " << config.getTotalVariableCount());
+    LOG_INFO("   📝 Variables escribibles: " << config.getWritableVariableCount());
 }
 
 // ============== CALLBACKS CORREGIDOS ==============
@@ -556,12 +739,69 @@ void updateData()
                 }
                 else
                 {
-                    // Variable simple - SKIP por ahora (no hay función implementada)
-                    LOG_DEBUG("⚠️ Variable simple saltada: " << var.opcua_name << " (función no implementada)");
+                    // Variable simple (F_xxx, I_xxx)
+                    simpleVars.push_back(&var);
                 }
             }
 
-            // 📊 ACTUALIZAR VARIABLES DE TABLA ÚNICAMENTE
+            // 📋 ACTUALIZAR VARIABLES SIMPLES PRIMERO
+            if (!simpleVars.empty()) {
+                LOG_DEBUG("📋 Actualizando " << simpleVars.size() << " variables simples...");
+                
+                for (const auto &var : simpleVars) {
+                    bool success = false;
+                    
+                    // 🔧 USAR SIGNATURA CORRECTA: readFloatVariable(table_name, index)
+                    if (var->type == Variable::FLOAT) {
+                        try {
+                            // Para variables simples F_xxx, usar índice 0
+                            float newValue = pacClient->readFloatVariable(var->pac_source, 0);
+                            
+                            UA_NodeId nodeId = UA_NODEID_NUMERIC(1, var->node_id);
+                            UA_Variant value;
+                            UA_Variant_init(&value);
+                            UA_Variant_setScalar(&value, &newValue, &UA_TYPES[UA_TYPES_FLOAT]);
+                            
+                            UA_StatusCode result = UA_Server_writeValue(server, nodeId, value);
+                            success = (result == UA_STATUSCODE_GOOD);
+                            
+                            if (success) {
+                                LOG_DEBUG("📝 " << var->opcua_name << " = " << newValue);
+                            }
+                        } catch (const std::exception& e) {
+                            LOG_DEBUG("❌ Error leyendo FLOAT " << var->pac_source << ": " << e.what());
+                        }
+                    }
+                    else if (var->type == Variable::INT32) {
+                        try {
+                            // Para variables simples I_xxx, usar índice 0
+                            int32_t newValue = pacClient->readInt32Variable(var->pac_source, 0);
+                            
+                            UA_NodeId nodeId = UA_NODEID_NUMERIC(1, var->node_id);
+                            UA_Variant value;
+                            UA_Variant_init(&value);
+                            UA_Variant_setScalar(&value, &newValue, &UA_TYPES[UA_TYPES_INT32]);
+                            
+                            UA_StatusCode result = UA_Server_writeValue(server, nodeId, value);
+                            success = (result == UA_STATUSCODE_GOOD);
+                            
+                            if (success) {
+                                LOG_DEBUG("📝 " << var->opcua_name << " = " << newValue);
+                            }
+                        } catch (const std::exception& e) {
+                            LOG_DEBUG("❌ Error leyendo INT32 " << var->pac_source << ": " << e.what());
+                        }
+                    }
+                    
+                    if (!success) {
+                        LOG_DEBUG("❌ Error actualizando variable simple: " << var->opcua_name);
+                    }
+                }
+                
+                LOG_DEBUG("✅ Variables simples procesadas");
+            }
+
+            // 📊 ACTUALIZAR VARIABLES DE TABLA (código existente)
             int tables_updated = 0;
             for (const auto &[tableName, vars] : tableVars)
             {
