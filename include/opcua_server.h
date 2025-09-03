@@ -25,5 +25,7 @@ int getVariableIndex(const std::string &varName);
 int getAPIVariableIndex(const std::string &varName);
 int getBatchVariableIndex(const std::string &varName);
 bool isWritableVariable(const std::string &varName);
+void verifyAndFixNodeTypes();
+void enableWriteCallbacks();
 
 #endif // OPCUA_SERVER_H

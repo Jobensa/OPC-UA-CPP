@@ -26,6 +26,9 @@ struct Variable {
     // Campos adicionales
     std::string description;     // Descripción opcional
     int table_index = -1;        // Índice en la tabla (0, 1, 2, 3)
+
+    // 🔧 AGREGAR SOPORTE PARA NODEID STRING
+    std::string node_string_id;          // 🔧 NUEVO: NodeId STRING
 };
 
 // Configuración de TAG tradicional (TBL_tags)
@@ -37,18 +40,16 @@ struct Tag {
     std::vector<std::string> alarms;     // ["HI", "LO", "BAD"]
 };
 
-// Configuración de API TAG (TBL_tags_api)  
 struct APITag {
-    std::string name;            // "API_11001"
-    std::string value_table;     // "TBL_API_11001"     
-    std::vector<std::string> variables;  // ["IV", "NSV", "CPL", "CTL"]
+    std::string name;
+    std::string value_table;  // ✅ Correcto
+    std::vector<std::string> variables;
 };
 
-// Configuración de BATCH TAG  
 struct BatchTag {
-    std::string name;            // "BATCH_B1"
-    std::string value_table;     // "TBL_BATCH_B1"     
-    std::vector<std::string> variables;  // ["Tiquete", "Cliente", etc.]
+    std::string name;
+    std::string value_table;  // ✅ Correcto  
+    std::vector<std::string> variables;
 };
 
 // Variable simple individual
