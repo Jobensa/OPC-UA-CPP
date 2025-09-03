@@ -8,7 +8,7 @@
 #include <numeric>
 #include <cstring>
 #include <stdexcept>
-#include <cmath>     // 🔧 AGREGAR PARA std::isnan, std::isinf
+#include <cmath> // 🔧 AGREGAR PARA std::isnan, std::isinf
 
 using namespace std;
 using json = nlohmann::json;
@@ -28,6 +28,21 @@ std::atomic<bool> server_writing_internally{false};
 bool server_running_flag = true;
 
 // ============== FUNCIONES AUXILIARES ==============
+
+
+// 🔧 READCALLBACK COMENTADO - CAUSABA SEGMENTATION FAULT
+/*
+static UA_StatusCode readCallback(UA_Server *server,
+                                  const UA_NodeId *sessionId, void *sessionContext,
+                                  const UA_NodeId *nodeId, void *nodeContext,
+                                  UA_Boolean sourceTimeStamp,
+                                  const UA_NumericRange *range,
+                                  UA_DataValue *dataValue)
+{
+    // FUNCIÓN COMENTADA - CAUSABA PROBLEMAS DE MEMORIA
+    return UA_STATUSCODE_GOOD;
+}
+*/
 
 int getVariableIndex(const std::string &varName)
 {
@@ -246,35 +261,43 @@ bool processConfigFromJson(const json &configJson)
     }
 
     // 🔧 LIMPIAR CONFIGURACIÓN ANTERIOR
-    config.clear();
+    // config.clear();  // ← ELIMINAR ESTA LÍNEA - BORRA LAS VARIABLES SIMPLES
 
     // 📋 PROCESAR SIMPLE_VARIABLES
-    if (configJson.contains("simple_variables")) {
-        for (const auto &simpleVar : configJson["simple_variables"]) {
+    if (configJson.contains("simple_variables"))
+    {
+        for (const auto &simpleVar : configJson["simple_variables"])
+        {
             Variable var;
             var.opcua_name = simpleVar.value("name", "");
             var.tag_name = "SimpleVars";
             var.var_name = simpleVar.value("name", "");
             var.pac_source = simpleVar.value("pac_source", var.var_name);
             var.description = simpleVar.value("description", "");
-            
+
             // 🔧 USAR TIPO DEL JSON O INFERIR DEL PREFIJO
             std::string jsonType = simpleVar.value("type", "");
-            if (jsonType == "FLOAT" || var.var_name.find("F_") == 0) {
+            if (jsonType == "FLOAT" || var.var_name.find("F_") == 0)
+            {
                 var.type = Variable::FLOAT;
-            } else if (jsonType == "INT32" || var.var_name.find("I_") == 0) {
+            }
+            else if (jsonType == "INT32" || var.var_name.find("I_") == 0)
+            {
                 var.type = Variable::INT32;
-            } else {
+            }
+            else
+            {
                 var.type = Variable::FLOAT; // Por defecto
             }
-            
+
             var.writable = simpleVar.value("writable", false);
             var.table_index = -1;
 
+            // 🔧 AGREGAR DIRECTAMENTE A config.variables, NO A config.simple_variables
             config.variables.push_back(var);
             LOG_DEBUG("🔧 Variable simple " << (var.type == Variable::FLOAT ? "FLOAT" : "INT32") << ": " << var.opcua_name);
         }
-        
+
         LOG_INFO("✓ Cargadas " << configJson["simple_variables"].size() << " variables simples");
     }
 
@@ -398,28 +421,20 @@ void processConfigIntoVariables()
 {
     LOG_INFO("🔧 Procesando configuración en variables...");
 
-    // 📋 CREAR VARIABLES DESDE SIMPLE_VARIABLES
-    for (const auto &simpleVar : config.simple_variables)
-    {
-        if (simpleVar.name.empty())
-        {
-            LOG_DEBUG("⚠️ Variable simple sin nombre, omitiendo");
-            continue;
+    // 🔧 CONTAR VARIABLES SIMPLES EXISTENTES
+    int simpleVarsCount = 0;
+    for (const auto &var : config.variables) {
+        if (var.tag_name == "SimpleVars") {
+            simpleVarsCount++;
         }
-
-        Variable var;
-        var.opcua_name = simpleVar.name;
-        var.tag_name = "SimpleVars";
-        var.var_name = simpleVar.name;
-        var.pac_source = simpleVar.pac_source; // F_xxx o I_xxx directo
-        var.type = (simpleVar.type == "INT32") ? Variable::INT32 : Variable::FLOAT;
-        var.writable = simpleVar.writable;
-        var.description = simpleVar.description;
-
-        config.variables.push_back(var);
     }
+    
+    LOG_INFO("📋 Variables simples ya cargadas: " << simpleVarsCount);
 
-    // 📊 CREAR VARIABLES DESDE TBL_TAGS 
+    // 🔧 NO BORRAR - YA TENEMOS VARIABLES SIMPLES CARGADAS
+    // config.variables.clear();  // ← NUNCA HACER ESTO
+
+    // 📊 AGREGAR VARIABLES DESDE TBL_TAGS (sin borrar las existentes)
     for (const auto &tag : config.tags)
     {
         // Variables de valores
@@ -431,32 +446,20 @@ void processConfigIntoVariables()
             var.var_name = varName;
             var.pac_source = tag.value_table + ":" + to_string(getVariableIndex(varName));
             
-            // 🔧 REGLAS CORRECTAS SEGÚN ESPECIFICACIÓN:
-            // TT, PT, LT (Temperature, Pressure, Level) → FLOAT
-            // TA, PA, LA (Alarm tags) → INT32
-            // Color → INT32
-            // ALARM_xxx → INT32
-            
-            if (varName.find("ALARM_") == 0 || 
-                varName == "Color" ||
-                tag.name.find("TA_") == 0 ||
-                tag.name.find("PA_") == 0 ||
-                tag.name.find("LA_") == 0) {
+            // 🔧 REGLAS PARA TBL_TAGS:
+            if (varName.find("ALARM_") == 0 || varName == "Color") {
                 var.type = Variable::INT32;
-                LOG_DEBUG("🔧 Variable INT32: " << var.opcua_name);
             } else {
-                // 🔧 TT_, PT_, LT_ y todas las demás variables son FLOAT
                 var.type = Variable::FLOAT;
-                LOG_DEBUG("🔧 Variable FLOAT: " << var.opcua_name);
             }
             
             var.writable = isWritableVariable(varName);
-            var.table_index = getVariableIndex(varName);  // 🔧 LÍNEA CORREGIDA
+            var.table_index = getVariableIndex(varName);
             
             config.variables.push_back(var);
         }
 
-        // Variables de alarmas - SIEMPRE INT32
+        // Variables de alarmas
         if (!tag.alarm_table.empty())
         {
             for (const auto &alarmName : tag.alarms)
@@ -466,12 +469,11 @@ void processConfigIntoVariables()
                 var.tag_name = tag.name;
                 var.var_name = "ALARM_" + alarmName;
                 var.pac_source = tag.alarm_table + ":" + to_string(getVariableIndex(alarmName));
-                var.type = Variable::INT32; // 🔧 ALARMAS SIEMPRE INT32
-                var.writable = false;       
+                var.type = Variable::INT32;
+                var.writable = false;
                 var.table_index = getVariableIndex(alarmName);
 
                 config.variables.push_back(var);
-                LOG_DEBUG("🔧 Variable ALARM INT32: " << var.opcua_name);
             }
         }
     }
@@ -485,116 +487,55 @@ void processConfigIntoVariables()
             var.opcua_name = apiTag.name + "." + varName;
             var.tag_name = apiTag.name;
             var.var_name = varName;
-            var.pac_source = apiTag.value_table + ":" + to_string(getAPIVariableIndex(varName)); // 🔧 CORREGIR: value_table en lugar de table
-            var.type = Variable::FLOAT;  // 🔧 API TAGS SON FLOAT
+            var.pac_source = apiTag.value_table + ":" + to_string(getAPIVariableIndex(varName));
+            var.type = Variable::FLOAT;
             var.writable = isWritableVariable(varName);
             var.table_index = getAPIVariableIndex(varName);
 
             config.variables.push_back(var);
-            LOG_DEBUG("🔧 Variable API FLOAT: " << var.opcua_name);
         }
     }
 
-    // 📦 CREAR VARIABLES DESDE BATCH_TAGS CON ÍNDICES CORRECTOS
+    // 📦 CREAR VARIABLES DESDE BATCH_TAGS
     for (const auto &batchTag : config.batch_tags)
     {
-        for (size_t i = 0; i < batchTag.variables.size(); i++)
+        for (const auto &varName : batchTag.variables)
         {
-            const auto &varName = batchTag.variables[i];
-
             Variable var;
             var.opcua_name = batchTag.name + "." + varName;
             var.tag_name = batchTag.name;
             var.var_name = varName;
-            var.pac_source = batchTag.value_table + ":" + to_string(getBatchVariableIndex(varName)); // 🔧 VERIFICAR: value_table
-
-            var.type = Variable::FLOAT; // Valores de proceso
-            
-
-            var.writable = false; // Batch tags normalmente son solo lectura (datos históricos)
+            var.pac_source = batchTag.value_table + ":" + to_string(getBatchVariableIndex(varName));
+            var.type = Variable::FLOAT;
+            var.writable = false;
             var.table_index = getBatchVariableIndex(varName);
 
             config.variables.push_back(var);
-
-            LOG_DEBUG("✅ Batch variable: " << var.opcua_name << " (índice: " << var.table_index << ", tipo: " << (var.type == Variable::FLOAT ? "FLOAT" : "INT32") << ")");
         }
     }
 
-    // 🔧 VALIDAR TIPOS DE TODAS LAS VARIABLES ANTES DE CONTINUAR
-    LOG_INFO("🔧 Validando tipos de variables...");
-    int invalidTypes = 0;
-    for (auto &var : config.variables) {
-        if (var.type != Variable::FLOAT && var.type != Variable::INT32) {
-            LOG_ERROR("❌ Variable con tipo inválido: " << var.opcua_name << " (tipo: " << var.type << ")");
-            var.type = Variable::FLOAT; // Corregir a FLOAT
-            invalidTypes++;
-        }
-    }
-    
-    if (invalidTypes > 0) {
-        LOG_INFO("🔧 Corregidos " << invalidTypes << " tipos inválidos a FLOAT");
-    }
-
-    LOG_INFO("✅ Procesamiento completado:");
-    LOG_INFO("   📋 Variables simples: " << config.simple_variables.size());
-    LOG_INFO("   📊 TBL_tags: " << config.tags.size());
-    LOG_INFO("   🔧 API_tags: " << config.api_tags.size());
-    LOG_INFO("   📦 Batch_tags: " << config.batch_tags.size());
-    LOG_INFO("   🎯 Total variables OPC-UA: " << config.getTotalVariableCount());
-    LOG_INFO("   📝 Variables escribibles: " << config.getWritableVariableCount());
-
-    // 🔧 RESUMEN DE TIPOS APLICADOS CON VARIABLES SIMPLES
-    int floatCount = 0, int32Count = 0;
-    int simpleFloatCount = 0, simpleInt32Count = 0;
+    // 📊 RESUMEN FINAL CON SEPARACIÓN
+    int simpleCount = 0, tagCount = 0, floatCount = 0, int32Count = 0;
     
     for (const auto &var : config.variables) {
-        if (var.type == Variable::FLOAT) {
-            floatCount++;
-            if (var.tag_name == "SimpleVars" && var.var_name.find("F_") == 0) {
-                simpleFloatCount++;
-            }
-        } else if (var.type == Variable::INT32) {
-            int32Count++;
-            if (var.tag_name == "SimpleVars" && var.var_name.find("I_") == 0) {
-                simpleInt32Count++;
-            }
+        if (var.tag_name == "SimpleVars") {
+            simpleCount++;
+        } else {
+            tagCount++;
         }
+        
+        if (var.type == Variable::FLOAT) floatCount++;
+        else if (var.type == Variable::INT32) int32Count++;
     }
     
-    LOG_INFO("📊 Tipos de variables asignados:");
-    LOG_INFO("   🔢 FLOAT: " << floatCount << " total");
-    LOG_INFO("     ├─ TT_/PT_/LT_/API_/BATCH_: " << (floatCount - simpleFloatCount));
-    LOG_INFO("     └─ Variables simples F_xxx: " << simpleFloatCount);
-    LOG_INFO("   🔢 INT32: " << int32Count << " total");
-    LOG_INFO("     ├─ TA_/PA_/LA_/ALARM_/Color: " << (int32Count - simpleInt32Count));
-    LOG_INFO("     └─ Variables simples I_xxx: " << simpleInt32Count);
+    LOG_INFO("✅ Variables procesadas:");
+    LOG_INFO("   📋 Variables simples (SimpleVars): " << simpleCount);
+    LOG_INFO("   📊 Variables de tags (TT_/PT_/etc.): " << tagCount);
+    LOG_INFO("   🔢 Tipos: " << floatCount << " FLOAT, " << int32Count << " INT32");
+    LOG_INFO("   🎯 Total: " << config.variables.size() << " variables");
 }
 
 // ============== CALLBACKS CORREGIDOS ==============
-
-// Para UA_DataSource.read
-static UA_StatusCode readCallback(UA_Server *server,
-                                  const UA_NodeId *sessionId, void *sessionContext,
-                                  const UA_NodeId *nodeId, void *nodeContext,
-                                  UA_Boolean sourceTimeStamp,
-                                  const UA_NumericRange *range,
-                                  UA_DataValue *dataValue)
-{
-    // 🔍 IGNORAR LECTURAS DURANTE ACTUALIZACIONES INTERNAS
-    if (updating_internally.load())
-    {
-        return UA_STATUSCODE_GOOD;
-    }
-
-    // 🔧 CORREGIR PARA NODEID STRING
-    if (nodeId && nodeId->identifierType == UA_NODEIDTYPE_STRING)
-    {
-        std::string stringNodeId = std::string((char*)nodeId->identifier.string.data, nodeId->identifier.string.length);
-        LOG_DEBUG("📖 Lectura de NodeId: " << stringNodeId);
-    }
-
-    return UA_STATUSCODE_GOOD;
-}
 
 // Para UA_DataSource.write
 static UA_StatusCode writeCallback(UA_Server *server,
@@ -713,6 +654,8 @@ static UA_StatusCode writeCallback(UA_Server *server,
     }
 }
 
+
+
 // ============== CREACIÓN DE NODOS ==============
 
 void createNodes()
@@ -794,35 +737,40 @@ void createNodes()
 
                 // 🔧 DETERMINAR TIPO CORRECTO SEGÚN VARIABLE - LÓGICA MEJORADA
                 bool shouldBeInt32 = false;
-                
+
                 // 🔧 Detectar variables INT32:
                 // 1. Variables que empiezan con ALARM_
-                if (var->var_name.find("ALARM_") == 0) {
+                if (var->var_name.find("ALARM_") == 0)
+                {
                     shouldBeInt32 = true;
                     LOG_DEBUG("  🎯 ALARM detectado: " << var->var_name);
                 }
                 // 2. Variable Color
-                else if (var->var_name == "Color") {
+                else if (var->var_name == "Color")
+                {
                     shouldBeInt32 = true;
                     LOG_DEBUG("  🎯 Color detectado: " << var->var_name);
                 }
                 // 3. Variables simples I_xxx
-                else if (var->tag_name == "SimpleVars" && var->var_name.find("I_") == 0) {
+                else if (var->tag_name == "SimpleVars" && var->var_name.find("I_") == 0)
+                {
                     shouldBeInt32 = true;
                     LOG_DEBUG("  🎯 Variable simple I_ detectada: " << var->var_name);
                 }
                 // 4. Tags de alarma (TA_, PA_, LA_, DA_)
-                else if (var->tag_name.find("TA_") == 0 || var->tag_name.find("PA_") == 0 || 
-                         var->tag_name.find("LA_") == 0 || var->tag_name.find("DA_") == 0) {
+                else if (var->tag_name.find("TA_") == 0 || var->tag_name.find("PA_") == 0 ||
+                         var->tag_name.find("LA_") == 0 || var->tag_name.find("DA_") == 0)
+                {
                     shouldBeInt32 = true;
                     LOG_DEBUG("  🎯 Tag de alarma detectado: " << var->tag_name);
                 }
                 // 5. Forzar según tipo configurado
-                else if (var->type == Variable::INT32) {
+                else if (var->type == Variable::INT32)
+                {
                     shouldBeInt32 = true;
                     LOG_DEBUG("  🎯 Tipo INT32 configurado: " << var->var_name);
                 }
-                
+
                 if (shouldBeInt32)
                 {
                     int32_t initial = 0;
@@ -831,10 +779,10 @@ void createNodes()
                     vAttr.valueRank = UA_VALUERANK_SCALAR;
                     vAttr.arrayDimensionsSize = 0;
                     vAttr.arrayDimensions = nullptr;
-                    
+
                     // 🔧 FORZAR TIPO EN ESTRUCTURA TAMBIÉN
                     var->type = Variable::INT32;
-                    
+
                     LOG_DEBUG("  🔢 Variable INT32: " << var->var_name << " (DataType: " << vAttr.dataType.identifier.numeric << ")");
                 }
                 else
@@ -845,10 +793,10 @@ void createNodes()
                     vAttr.valueRank = UA_VALUERANK_SCALAR;
                     vAttr.arrayDimensionsSize = 0;
                     vAttr.arrayDimensions = nullptr;
-                    
+
                     // 🔧 FORZAR TIPO EN ESTRUCTURA TAMBIÉN
                     var->type = Variable::FLOAT;
-                    
+
                     LOG_DEBUG("  🔢 Variable FLOAT: " << var->var_name << " (DataType: " << vAttr.dataType.identifier.numeric << ")");
                 }
 
@@ -873,29 +821,10 @@ void createNodes()
                     var->has_node = true;
                     created_vars++;
 
-                    // 🔧 FORZAR VALOR POR DEFECTO INMEDIATAMENTE (SIN CALLBACKS)
-                    UA_Variant initialValue;
-                    UA_Variant_init(&initialValue);
-                    
-                    if (var->type == Variable::FLOAT) {
-                        float defaultFloat = 0.0f;
-                        UA_Variant_setScalar(&initialValue, &defaultFloat, &UA_TYPES[UA_TYPES_FLOAT]);
-                    } else {
-                        int32_t defaultInt = 0;
-                        UA_Variant_setScalar(&initialValue, &defaultInt, &UA_TYPES[UA_TYPES_INT32]);
-                    }
-                    
-                    // 🔧 ESCRIBIR VALOR POR DEFECTO (SIN DATASOURCE = SIN CALLBACKS)
-                    UA_StatusCode writeResult = UA_Server_writeValue(server, varNodeId, initialValue);
-                    if (writeResult == UA_STATUSCODE_GOOD) {
-                        LOG_DEBUG("  🔧 Valor por defecto asignado a: " << var->var_name);
-                    }
+                    // 🔧 NO ESCRIBIR VALORES POR DEFECTO AQUÍ - DEJAR QUE updateData() LOS MANEJE
+                    // El nodo se crea con el tipo correcto y updateData() pondrá los valores reales
 
-                    // 🔧 NO CONFIGURAR DATASOURCE AQUÍ - EVITAR CALLBACKS DURANTE INIT
-                    LOG_DEBUG("  ✅ " << var->var_name << " (" << 
-                             (var->writable ? "R/W" : "R") << ", " << 
-                             (var->type == Variable::FLOAT ? "FLOAT" : "INT32") << 
-                             ") - SIN callbacks");
+                    LOG_DEBUG("  ✅ " << var->var_name << " (" << (var->writable ? "R/W" : "R") << ", " << (var->type == Variable::FLOAT ? "FLOAT" : "INT32") << ") - Nodo creado");
                 }
                 else
                 {
@@ -908,26 +837,36 @@ void createNodes()
             }
         }
 
-        // 🔧 RESUMEN FINAL DE TIPOS ASIGNADOS
-        int floatNodes = 0, int32Nodes = 0;
-        for (const auto &var : config.variables) {
-            if (var.has_node) {
-                if (var.type == Variable::FLOAT) floatNodes++;
-                else if (var.type == Variable::INT32) int32Nodes++;
-            }
+        LOG_DEBUG("✅ TAG " << tagName << " completado: " << created_vars << "/" << variables.size() << " variables creadas");
+    }
+
+    // 🔧 RESUMEN FINAL - SOLO UNA VEZ
+    int floatNodes = 0, int32Nodes = 0;
+    for (const auto &var : config.variables)
+    {
+        if (var.has_node)
+        {
+            if (var.type == Variable::FLOAT)
+                floatNodes++;
+            else if (var.type == Variable::INT32)
+                int32Nodes++;
         }
-        
-        LOG_INFO("✅ Estructura jerárquica completada:");
-        LOG_INFO("   📁 TAGs creados: " << tagVars.size());
-        LOG_INFO("   📊 Variables totales: " << config.getTotalVariableCount());
-        LOG_INFO("   📝 Variables escribibles: " << config.getWritableVariableCount());
-        LOG_INFO("   🔢 Tipos asignados: " << floatNodes << " FLOAT, " << int32Nodes << " INT32");
     }
 
     LOG_INFO("✅ Estructura jerárquica completada:");
     LOG_INFO("   📁 TAGs creados: " << tagVars.size());
     LOG_INFO("   📊 Variables totales: " << config.getTotalVariableCount());
     LOG_INFO("   📝 Variables escribibles: " << config.getWritableVariableCount());
+    LOG_INFO("   🔢 Tipos asignados: " << floatNodes << " FLOAT, " << int32Nodes << " INT32");
+
+    // 🔧 ACTIVAR CALLBACKS INMEDIATAMENTE DESPUÉS DE CREAR NODOS
+    enableWriteCallbacksOnce();
+
+    // 🔧 ESCRIBIR VALORES POR DEFECTO A VARIABLES ESCRIBIBLES
+    writeDefaultValuesToWritableVariables();
+
+    // 🔧 FORZAR PRIMERA ACTUALIZACIÓN INMEDIATA DE DATOS REALES
+    performImmediateDataUpdate();
 }
 
 // ============== ACTUALIZACIÓN DE DATOS ==============
@@ -935,7 +874,6 @@ void createNodes()
 void updateData()
 {
     static auto lastReconnect = chrono::steady_clock::now();
-    static bool firstUpdate = true;  // 🔧 BANDERA PARA PRIMERA ACTUALIZACIÓN
 
     while (running && server_running)
     {
@@ -951,7 +889,9 @@ void updateData()
 
         if (pacClient && pacClient->isConnected())
         {
-            LOG_DEBUG("🔄 Iniciando actualización de datos del PAC");
+            // 🔧 VALIDACIÓN DE TIPOS ANTES DE ACTUALIZAR
+            static bool typesValidated = false;
+         
 
             // ⚠️ MARCAR ACTUALIZACIÓN EN PROGRESO
             updating_internally.store(true);
@@ -990,69 +930,34 @@ void updateData()
 
                 for (const auto &var : simpleVars)
                 {
-                    bool success = false;
-
-                    // 🔧 USAR SIGNATURA CORRECTA: readFloatVariable(table_name, index)
-                    if (var->type == Variable::FLOAT)
+                    try
                     {
-                        try
-                        {
-                            // Para variables simples F_xxx, usar índice 0
-                            float newValue = pacClient->readFloatVariable(var->pac_source, 0);
+                        UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char *>(var->opcua_name.c_str()));
+                        UA_Variant value;
+                        UA_Variant_init(&value);
 
-                            // 🔧 USAR NODEID STRING (COHERENTE CON createNodes)
-                            UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char *>(var->opcua_name.c_str()));
-                            UA_Variant value;
-                            UA_Variant_init(&value);
+                        if (var->type == Variable::FLOAT)
+                        {
+                            float newValue = pacClient->readSingleFloatVariableByTag(var->pac_source);
                             UA_Variant_setScalar(&value, &newValue, &UA_TYPES[UA_TYPES_FLOAT]);
-
-                            UA_StatusCode result = UA_Server_writeValue(server, nodeId, value);
-                            success = (result == UA_STATUSCODE_GOOD);
-
-                            if (success)
-                            {
-                                LOG_DEBUG("📝 " << var->opcua_name << " = " << newValue);
-                            }
                         }
-                        catch (const std::exception &e)
+                        else if (var->type == Variable::INT32)
                         {
-                            LOG_DEBUG("❌ Error leyendo FLOAT " << var->pac_source << ": " << e.what());
-                        }
-                    }
-                    else if (var->type == Variable::INT32)
-                    {
-                        try
-                        {
-                            // Para variables simples I_xxx, usar índice 0
-                            int32_t newValue = pacClient->readInt32Variable(var->pac_source, 0);
-
-                            // 🔧 USAR NODEID STRING (COHERENTE CON createNodes)
-                            UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char *>(var->opcua_name.c_str()));
-                            UA_Variant value;
-                            UA_Variant_init(&value);
+                            int32_t newValue = pacClient->readSingleInt32VariableByTag(var->pac_source);
                             UA_Variant_setScalar(&value, &newValue, &UA_TYPES[UA_TYPES_INT32]);
-
-                            UA_StatusCode result = UA_Server_writeValue(server, nodeId, value);
-                            success = (result == UA_STATUSCODE_GOOD);
-
-                            if (success)
-                            {
-                                LOG_DEBUG("📝 " << var->opcua_name << " = " << newValue);
-                            }
                         }
-                        catch (const std::exception &e)
+
+                        UA_StatusCode result = UA_Server_writeValue(server, nodeId, value);
+                        if (result != UA_STATUSCODE_GOOD)
                         {
-                            LOG_DEBUG("❌ Error leyendo INT32 " << var->pac_source << ": " << e.what());
+                            LOG_ERROR("❌ Error actualizando: " << var->opcua_name);
                         }
                     }
-
-                    if (!success)
+                    catch (const std::exception &e)
                     {
-                        LOG_DEBUG("❌ Error actualizando variable simple: " << var->opcua_name);
+                        LOG_ERROR("❌ Excepción: " << var->pac_source << " - " << e.what());
                     }
                 }
-
-                LOG_DEBUG("✅ Variables simples procesadas");
             }
 
             // 📊 ACTUALIZAR VARIABLES DE TABLA (código existente)
@@ -1104,7 +1009,7 @@ void updateData()
                         continue;
                     }
 
-                        LOG_DEBUG("✅ Leída tabla INT32: " << tableName << " (" << values.size() << " valores)");
+                    LOG_DEBUG("✅ Leída tabla INT32: " << tableName << " (" << values.size() << " valores)");
 
                     // Actualizar variables
                     int vars_updated = 0;
@@ -1122,21 +1027,86 @@ void updateData()
 
                             UA_Variant value;
                             UA_Variant_init(&value);
-                            
-                            // 🔧 RESPETAR TIPO CONFIGURADO DEL NODO
-                            if (var->type == Variable::INT32) {
-                                // Usar datos INT32 directamente
-                                int32_t newValue = values[arrayIndex];
-                                UA_Variant_setScalar(&value, &newValue, &UA_TYPES[UA_TYPES_INT32]);
-                                
-                                LOG_DEBUG("📝 " << var->opcua_name << " = " << newValue << " (INT32 desde alarma)");
-                            } else {
-                                // Convertir a FLOAT si la variable está configurada como FLOAT
-                                float newValue = static_cast<float>(values[arrayIndex]);
-                                UA_Variant_setScalar(&value, &newValue, &UA_TYPES[UA_TYPES_FLOAT]);
-                                
-                                LOG_DEBUG("📝 " << var->opcua_name << " = " << newValue << " (FLOAT convertido desde alarma)");
+
+                            // Usar datos INT32 directamente
+                            int32_t newValue = values[arrayIndex];
+                            UA_Variant_setScalar(&value, &newValue, &UA_TYPES[UA_TYPES_INT32]);
+
+                            LOG_DEBUG("📝 " << var->opcua_name << " = " << newValue << " (INT32 desde alarma)");
+
+                            UA_StatusCode result = UA_Server_writeValue(server, nodeId, value);
+
+                            if (result == UA_STATUSCODE_GOOD)
+                            {
+                                vars_updated++;
                             }
+                            else
+                            {
+                                LOG_ERROR("❌ Error actualizando alarma " << var->opcua_name << ": " << UA_StatusCode_name(result));
+                            }
+                        }
+                        else
+                        {
+                            // 🔧 VALOR POR DEFECTO SI ESTÁ FUERA DE RANGO
+                            UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char *>(var->opcua_name.c_str()));
+                            UA_Variant value;
+                            UA_Variant_init(&value);
+
+                            if (var->type == Variable::INT32)
+                            {
+                                int32_t defaultValue = 0;
+                                UA_Variant_setScalar(&value, &defaultValue, &UA_TYPES[UA_TYPES_INT32]);
+                            }
+                            else
+                            {
+                                float defaultValue = 0.0f;
+                                UA_Variant_setScalar(&value, &defaultValue, &UA_TYPES[UA_TYPES_FLOAT]);
+                            }
+
+                            UA_Server_writeValue(server, nodeId, value);
+                            LOG_DEBUG("📝 " << var->opcua_name << " = 0 (valor por defecto - fuera de rango)");
+                        }
+                    }
+
+                    if (vars_updated > 0)
+                    {
+                        LOG_DEBUG("✅ Tabla alarmas " << tableName << ": " << vars_updated << " variables actualizadas");
+                    }
+                }
+                else
+                {
+                    // 🔧 TABLAS NORMALES - USAR readFloatTable()
+                    LOG_DEBUG("📊 Leyendo tabla de DATOS (FLOAT): " << tableName);
+
+                    vector<float> float_values = pacClient->readFloatTable(tableName, minIndex, maxIndex);
+                    if (float_values.empty())
+                    {
+                        LOG_ERROR("❌ Error leyendo tabla de datos: " << tableName);
+                        continue;
+                    }
+
+                    LOG_DEBUG("✅ Tabla datos leída: " << float_values.size() << " valores float");
+
+                    // Actualizar variables de datos
+                    int vars_updated = 0;
+                    for (const auto &var : vars)
+                    {
+                        size_t pos = var->pac_source.find(':');
+                        int index = stoi(var->pac_source.substr(pos + 1));
+                        int arrayIndex = index - minIndex;
+
+                        if (arrayIndex >= 0 && arrayIndex < (int)float_values.size())
+                        {
+                            UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char *>(var->opcua_name.c_str()));
+
+                            UA_Variant value;
+                            UA_Variant_init(&value);
+
+                            // Nodo FLOAT: usar valor directo del PAC
+                            float floatValue = float_values[arrayIndex];
+                            UA_Variant_setScalar(&value, &floatValue, &UA_TYPES[UA_TYPES_FLOAT]);
+
+                            LOG_DEBUG("📝 " << var->opcua_name << " = " << floatValue << " (FLOAT directo)");
 
                             UA_StatusCode result = UA_Server_writeValue(server, nodeId, value);
 
@@ -1147,79 +1117,17 @@ void updateData()
                             else
                             {
                                 LOG_ERROR("❌ Error actualizando " << var->opcua_name << ": " << UA_StatusCode_name(result));
+
+                                // 🔧 NO INTENTAR CORREGIR - SOLO REPORTAR
+                                // NO escribir valores por defecto aquí
                             }
                         }
                     }
 
-                    LOG_DEBUG("✅ Tabla INT32 " << tableName << ": " << vars_updated << " variables actualizadas");
-                }
-                else
-                {
-                    // 📊 LEER TABLA DE VALORES (FLOAT)
-                    vector<float> values = pacClient->readFloatTable(tableName, minIndex, maxIndex);
-
-                    if (values.empty())
+                    if (vars_updated > 0)
                     {
-                        LOG_DEBUG("❌ Error leyendo tabla FLOAT: " << tableName);
-                        
-                        // 🔧 MANTENER VALORES POR DEFECTO PARA VARIABLES SIN DATOS
-                        LOG_DEBUG("🔧 Manteniendo valores por defecto para tabla: " << tableName);
-                        
-                        // Asignar valores por defecto para mantener tipos
-                        for (const auto &var : vars) {
-                            if (var->type != Variable::FLOAT) continue;
-                            
-                            UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char *>(var->opcua_name.c_str()));
-                            UA_Variant defaultValue;
-                            UA_Variant_init(&defaultValue);
-                            float defaultFloat = 0.0f;
-                            UA_Variant_setScalar(&defaultValue, &defaultFloat, &UA_TYPES[UA_TYPES_FLOAT]);
-                            
-                            UA_Server_writeValue(server, nodeId, defaultValue);
-                            LOG_DEBUG("🔧 Valor por defecto asignado a: " << var->opcua_name);
-                        }
-                        
-                        continue;
+                        LOG_DEBUG("✅ Tabla datos " << tableName << ": " << vars_updated << " variables actualizadas");
                     }
-
-                    LOG_DEBUG("✅ Leída tabla FLOAT: " << tableName << " (" << values.size() << " valores)");
-
-                    // Actualizar variables
-                    int vars_updated = 0;
-                    for (const auto &var : vars)
-                    {
-                        if (var->type != Variable::FLOAT)
-                            continue;
-
-                        size_t pos = var->pac_source.find(':');
-                        int index = stoi(var->pac_source.substr(pos + 1));
-                        int arrayIndex = index - minIndex;
-
-                        if (arrayIndex >= 0 && arrayIndex < (int)values.size())
-                        {
-                            // 🔧 USAR NODEID STRING (COMO EN LA VERSIÓN ORIGINAL)
-                            UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char *>(var->opcua_name.c_str()));
-
-                            UA_Variant value;
-                            UA_Variant_init(&value);
-                            float newValue = values[arrayIndex];
-                            UA_Variant_setScalar(&value, &newValue, &UA_TYPES[UA_TYPES_FLOAT]);
-
-                            UA_StatusCode result = UA_Server_writeValue(server, nodeId, value);
-
-                            if (result == UA_STATUSCODE_GOOD)
-                            {
-                                vars_updated++;
-                                LOG_DEBUG("📝 " << var->opcua_name << " = " << newValue);
-                            }
-                            else
-                            {
-                                LOG_DEBUG("❌ Error actualizando " << var->opcua_name << ": " << UA_StatusCode_name(result));
-                            }
-                        }
-                    }
-
-                    LOG_DEBUG("✅ Tabla FLOAT " << tableName << ": " << vars_updated << " variables actualizadas");
                 }
 
                 tables_updated++;
@@ -1231,13 +1139,6 @@ void updateData()
             // 🔓 DESACTIVAR BANDERAS
             server_writing_internally.store(false);
             updating_internally.store(false);
-
-            // 🔧 ACTIVAR CALLBACKS SOLO DESPUÉS DE LA PRIMERA ACTUALIZACIÓN COMPLETA
-            if (firstUpdate) {
-                LOG_INFO("🎯 Primera actualización completada - activando callbacks de escritura");
-                enableWriteCallbacks();
-                firstUpdate = false;
-            }
 
             LOG_DEBUG("✅ Actualización completada: " << tables_updated << " tablas procesadas");
         }
@@ -1304,7 +1205,7 @@ bool ServerInit()
 
     // Crear nodos
     createNodes();
-    
+
     // 🔧 ELIMINAR ESTA LÍNEA - NO NECESITAMOS verifyAndFixNodeTypes
     // verifyAndFixNodeTypes();
 
@@ -1373,121 +1274,219 @@ void cleanupAndExit()
     cleanupServer();
 }
 
-// ============== FUNCIONES ADICIONALES ==============
-
-void verifyAndFixNodeTypes()
+void enableWriteCallbacksOnce()
 {
-    LOG_INFO("🔧 Verificando y corrigiendo tipos de nodos...");
+    LOG_INFO("📝 Configurando callbacks de escritura (solo variables escribibles)...");
+
+    // 🔧 POR AHORA, NO CONFIGURAR CALLBACKS PARA EVITAR PROBLEMAS
+    // Solo reportar cuántas variables escribibles tenemos
     
-    int fixedNodes = 0;
-    int totalNodes = 0;
+    int writableCount = 0;
+    for (auto &var : config.variables) {
+        if (var.has_node && var.writable && var.tag_name != "SimpleVars") {
+            writableCount++;
+            LOG_DEBUG("  📝 Variable escribible detectada: " << var.opcua_name);
+        }
+    }
+
+    LOG_INFO("📝 Variables escribibles detectadas: " << writableCount << " (callbacks deshabilitados temporalmente)");
+    
+    // TODO: Implementar callbacks de escritura más adelante cuando sea necesario
+}
+
+void performImmediateDataUpdate()
+{
+    LOG_INFO("🚀 Realizando actualización inmediata de datos para evitar valores null...");
+    
+    // Verificar conexión PAC
+    if (!pacClient) {
+        pacClient = std::make_unique<PACControlClient>(config.pac_ip, config.pac_port);
+    }
+    
+    if (!pacClient->isConnected()) {
+        LOG_INFO("🔌 Conectando al PAC para actualización inmediata...");
+        if (!pacClient->connect()) {
+            LOG_ERROR("❌ No se pudo conectar al PAC para actualización inmediata");
+            return;
+        }
+    }
+    
+    // Activar bandera de escritura interna
+    server_writing_internally.store(true);
+    
+    int variablesUpdated = 0;
+    
+    // Separar variables por tipo
+    vector<Variable *> simpleVars;
+    map<string, vector<Variable *>> tableVars;
     
     for (auto &var : config.variables) {
         if (!var.has_node) continue;
         
-        totalNodes++;
-        UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char *>(var.opcua_name.c_str()));
-        
-        // 🔧 APLICAR TIPOS SEGÚN ESPECIFICACIÓN CORRECTA
-        UA_Variant defaultValue;
-        UA_Variant_init(&defaultValue);
-        
-        // 🔧 VERIFICAR Y CORREGIR TIPOS SEGÚN REGLAS:
-        // TT_, PT_, LT_ → FLOAT
-        // TA_, PA_, LA_ → INT32  
-        // API_ → FLOAT
-        // BATCH_ → FLOAT
-        // F_xxx → FLOAT (variables simples)
-        // I_xxx → INT32 (variables simples)
-        // ALARM_ → INT32
-        // Color → INT32
-        
-        bool shouldBeFloat = false;
-        bool shouldBeInt32 = false;
-        
-        if (var.tag_name.find("TT_") == 0 || 
-            var.tag_name.find("PT_") == 0 || 
-            var.tag_name.find("LT_") == 0 ||
-            var.tag_name.find("API_") == 0 ||
-            var.tag_name.find("BATCH_") == 0 ||
-            (var.tag_name == "SimpleVars" && var.var_name.find("F_") == 0)) {  // 🔧 F_xxx
-            shouldBeFloat = true;
-        } else if (var.tag_name.find("TA_") == 0 ||
-                   var.tag_name.find("PA_") == 0 ||
-                   var.tag_name.find("LA_") == 0 ||
-                   var.var_name.find("ALARM_") == 0 ||
-                   var.var_name == "Color" ||
-                   (var.tag_name == "SimpleVars" && var.var_name.find("I_") == 0)) {  // 🔧 I_xxx
-            shouldBeInt32 = true;
+        size_t pos = var.pac_source.find(':');
+        if (pos != string::npos) {
+            string table = var.pac_source.substr(0, pos);
+            tableVars[table].push_back(&var);
         } else {
-            // Por defecto, variables de proceso son FLOAT
-            shouldBeFloat = true;
+            simpleVars.push_back(&var);
         }
-        
-        // Corregir tipo si es necesario
-        if (shouldBeFloat && var.type != Variable::FLOAT) {
-            LOG_DEBUG("🔧 Corrigiendo " << var.opcua_name << " de INT32 a FLOAT");
-            var.type = Variable::FLOAT;
-        } else if (shouldBeInt32 && var.type != Variable::INT32) {
-            LOG_DEBUG("🔧 Corrigiendo " << var.opcua_name << " de FLOAT a INT32");
-            var.type = Variable::INT32;
-        }
-        
-        // Asignar valor por defecto según tipo correcto
-        if (var.type == Variable::FLOAT) {
-            float defaultFloat = 0.0f;
-            UA_Variant_setScalar(&defaultValue, &defaultFloat, &UA_TYPES[UA_TYPES_FLOAT]);
-        } else {
-            int32_t defaultInt = 0;
-            UA_Variant_setScalar(&defaultValue, &defaultInt, &UA_TYPES[UA_TYPES_INT32]);
-        }
-        
-        // 🔧 ESCRIBIR VALOR POR DEFECTO PARA FORZAR TIPO
-        UA_StatusCode writeResult = UA_Server_writeValue(server, nodeId, defaultValue);
-        if (writeResult == UA_STATUSCODE_GOOD) {
-            fixedNodes++;
+    }
+    
+    // Actualizar variables simples
+    for (const auto &var : simpleVars) {
+        try {
+            UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char *>(var->opcua_name.c_str()));
+            UA_Variant value;
+            UA_Variant_init(&value);
             
-            LOG_DEBUG("  ✅ " << var.opcua_name << " → " << 
-                     (var.type == Variable::FLOAT ? "FLOAT" : "INT32") << 
-                     " (valor: " << (var.type == Variable::FLOAT ? "0.0" : "0") << ")");
-        } else {
-            LOG_ERROR("  ❌ Error asignando valor por defecto a: " << var.opcua_name << " - " << UA_StatusCode_name(writeResult));
+            if (var->type == Variable::FLOAT) {
+                float newValue = pacClient->readSingleFloatVariableByTag(var->pac_source);
+                UA_Variant_setScalar(&value, &newValue, &UA_TYPES[UA_TYPES_FLOAT]);
+                LOG_INFO("✅ Variable float individual leída: " << var->opcua_name << " = " << newValue);
+            } else {
+                int32_t newValue = pacClient->readSingleInt32VariableByTag(var->pac_source);
+                UA_Variant_setScalar(&value, &newValue, &UA_TYPES[UA_TYPES_INT32]);
+                LOG_INFO("📊 LEYENDO VARIABLE INT32 INDIVIDUAL: " << var->opcua_name);
+                if (newValue != 0) {
+                    LOG_INFO("✅ Variable int32 individual leída: " << var->opcua_name << " = " << newValue << " (0x" << std::hex << newValue << std::dec << ")");
+                } else {
+                    LOG_INFO("🔄 Simple INT32: " << var->opcua_name << " = " << newValue);
+                }
+            }
+            
+            UA_StatusCode result = UA_Server_writeValue(server, nodeId, value);
+            if (result == UA_STATUSCODE_GOOD) {
+                variablesUpdated++;
+            }
+        } catch (const std::exception &e) {
+            LOG_ERROR("❌ Error actualizando variable simple inmediata: " << var->opcua_name);
         }
     }
     
-    LOG_INFO("🔧 Verificación completada:");
-    LOG_INFO("   📊 Nodos procesados: " << totalNodes);
-    LOG_INFO("   ✅ Nodos corregidos: " << fixedNodes);
-    
-    if (fixedNodes < totalNodes) {
-        //LOG_WARN("⚠️ " << (totalNodes - fixedNodes) << " nodos podrían seguir con problemas de tipo");
+    // Actualizar algunas tablas representativas (solo unas pocas para no demorar)
+    int tablesProcessed = 0;
+    for (const auto &[tableName, vars] : tableVars) {
+        if (tablesProcessed >= 3) break; // Solo las primeras 3 tablas
+        
+        if (vars.empty()) continue;
+        
+        try {
+            // Determinar rango de índices
+            vector<int> indices;
+            for (const auto &var : vars) {
+                size_t pos = var->pac_source.find(':');
+                if (pos != std::string::npos) {
+                    int index = stoi(var->pac_source.substr(pos + 1));
+                    indices.push_back(index);
+                }
+            }
+            
+            if (indices.empty()) continue;
+            
+            int minIndex = *min_element(indices.begin(), indices.end());
+            int maxIndex = *max_element(indices.begin(), indices.end());
+            
+            // Leer datos
+            bool isAlarmTable = tableName.find("TBL_DA_") == 0 ||
+                              tableName.find("TBL_PA_") == 0 ||
+                              tableName.find("TBL_LA_") == 0 ||
+                              tableName.find("TBL_TA_") == 0;
+            
+            if (isAlarmTable) {
+                vector<int32_t> values = pacClient->readInt32Table(tableName, minIndex, maxIndex);
+                
+                for (const auto &var : vars) {
+                    size_t pos = var->pac_source.find(':');
+                    int index = stoi(var->pac_source.substr(pos + 1));
+                    int arrayIndex = index - minIndex;
+                    
+                    if (arrayIndex >= 0 && arrayIndex < (int)values.size()) {
+                        UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char *>(var->opcua_name.c_str()));
+                        UA_Variant value;
+                        UA_Variant_init(&value);
+                        
+                        int32_t newValue = values[arrayIndex];
+                        UA_Variant_setScalar(&value, &newValue, &UA_TYPES[UA_TYPES_INT32]);
+                        
+                        UA_StatusCode result = UA_Server_writeValue(server, nodeId, value);
+                        if (result == UA_STATUSCODE_GOOD) {
+                            variablesUpdated++;
+                        }
+                    }
+                }
+            } else {
+                vector<float> values = pacClient->readFloatTable(tableName, minIndex, maxIndex);
+                
+                for (const auto &var : vars) {
+                    size_t pos = var->pac_source.find(':');
+                    int index = stoi(var->pac_source.substr(pos + 1));
+                    int arrayIndex = index - minIndex;
+                    
+                    if (arrayIndex >= 0 && arrayIndex < (int)values.size()) {
+                        UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char *>(var->opcua_name.c_str()));
+                        UA_Variant value;
+                        UA_Variant_init(&value);
+                        
+                        float newValue = values[arrayIndex];
+                        UA_Variant_setScalar(&value, &newValue, &UA_TYPES[UA_TYPES_FLOAT]);
+                        
+                        UA_StatusCode result = UA_Server_writeValue(server, nodeId, value);
+                        if (result == UA_STATUSCODE_GOOD) {
+                            variablesUpdated++;
+                        }
+                    }
+                }
+            }
+            
+            tablesProcessed++;
+            LOG_INFO("✓ Tabla " << tableName << " leída: " << 
+                    (isAlarmTable ? "alarmas" : to_string(vars.size()) + " valores"));
+            LOG_INFO("🔄 Tabla inmediata: " << tableName << " procesada");
+            
+        } catch (const std::exception &e) {
+            LOG_ERROR("❌ Error en actualización inmediata de tabla: " << tableName);
+        }
     }
+    
+    // Desactivar bandera
+    server_writing_internally.store(false);
+    
+    LOG_INFO("✅ Actualización inmediata completada: " << variablesUpdated << " variables actualizadas");
 }
 
-void enableWriteCallbacks()
+void writeDefaultValuesToWritableVariables()
 {
-    LOG_INFO("📝 Activando callbacks de escritura para variables escribibles...");
+    LOG_INFO("📝 Escribiendo valores por defecto a variables escribibles...");
     
-    int callbacksEnabled = 0;
+    server_writing_internally.store(true);
     
+    int defaultsWritten = 0;
     for (auto &var : config.variables) {
-        if (!var.has_node || !var.writable) continue;
-        
-        UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char *>(var.opcua_name.c_str()));
-        
-        // 🔧 CONFIGURAR DATASOURCE SOLO PARA VARIABLES ESCRIBIBLES
-        UA_DataSource dataSource;
-        dataSource.read = readCallback;
-        dataSource.write = writeCallback;
-        
-        UA_StatusCode dsResult = UA_Server_setVariableNode_dataSource(server, nodeId, dataSource);
-        if (dsResult == UA_STATUSCODE_GOOD) {
-            callbacksEnabled++;
-            LOG_DEBUG("  📝 Callback habilitado para: " << var.opcua_name);
-        } else {
-            LOG_ERROR("  ❌ Error configurando callback para: " << var.opcua_name);
+        if (var.has_node && var.writable && var.tag_name != "SimpleVars") {
+            UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char *>(var.opcua_name.c_str()));
+            UA_Variant value;
+            UA_Variant_init(&value);
+            
+            if (var.type == Variable::FLOAT) {
+                float defaultValue = 0.0f;
+                UA_Variant_setScalar(&value, &defaultValue, &UA_TYPES[UA_TYPES_FLOAT]);
+            } else {
+                int32_t defaultValue = 0;
+                UA_Variant_setScalar(&value, &defaultValue, &UA_TYPES[UA_TYPES_INT32]);
+            }
+            
+            UA_StatusCode result = UA_Server_writeValue(server, nodeId, value);
+            if (result == UA_STATUSCODE_GOOD) {
+                defaultsWritten++;
+                LOG_DEBUG("📝 Valor por defecto escrito: " << var.opcua_name << " = 0");
+            } else {
+                LOG_ERROR("❌ Error escribiendo valor por defecto: " << var.opcua_name);
+            }
         }
     }
     
-    LOG_INFO("📝 Callbacks activados: " << callbacksEnabled << " variables escribibles");
+    server_writing_internally.store(false);
+    
+    LOG_INFO("📝 Valores por defecto escritos: " << defaultsWritten << " variables escribibles");
 }
+

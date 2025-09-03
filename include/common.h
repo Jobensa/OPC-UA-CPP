@@ -52,15 +52,6 @@ struct BatchTag {
     std::vector<std::string> variables;
 };
 
-// Variable simple individual
-struct SimpleVariable {
-    std::string name;            // "TEMP_AMBIENT"
-    std::string pac_source;      // "F_TEMP_AMBIENT" o "TBL_MISC:5"
-    std::string type;            // "FLOAT" o "INT32"
-    std::string description;     // Descripción opcional
-    bool writable = false;
-};
-
 // ============== CONFIGURACIÓN GLOBAL UNIFICADA ==============
 struct Config {
     // Configuración de conexión PAC
@@ -76,7 +67,6 @@ struct Config {
     std::vector<Tag> tags;                    // TBL_tags tradicionales
     std::vector<APITag> api_tags;            // TBL_tags_api  
     std::vector<BatchTag> batch_tags;        // BATCH_tags
-    std::vector<SimpleVariable> simple_variables;  // Variables individuales
     
     // Variables procesadas para OPC-UA (generadas desde las anteriores)
     std::vector<Variable> variables;         // Variables finales para OPC-UA
@@ -86,7 +76,6 @@ struct Config {
         tags.clear();
         api_tags.clear(); 
         batch_tags.clear();
-        simple_variables.clear();
         variables.clear();
     }
     
