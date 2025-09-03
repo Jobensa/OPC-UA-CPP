@@ -27,11 +27,7 @@ std::atomic<bool> server_writing_internally{false};
 // Variable normal para UA_Server_run (requiere bool*)
 bool server_running_flag = true;
 
-// ============== FUNCIONES AUXILIARES ==============
-
-
-// 🔧 READCALLBACK COMENTADO - CAUSABA SEGMENTATION FAULT
-/*
+// 🔧 READCALLBACK SIMPLE SOLO PARA VARIABLES ESCRIBIBLES
 static UA_StatusCode readCallback(UA_Server *server,
                                   const UA_NodeId *sessionId, void *sessionContext,
                                   const UA_NodeId *nodeId, void *nodeContext,
@@ -39,10 +35,51 @@ static UA_StatusCode readCallback(UA_Server *server,
                                   const UA_NumericRange *range,
                                   UA_DataValue *dataValue)
 {
-    // FUNCIÓN COMENTADA - CAUSABA PROBLEMAS DE MEMORIA
+    if (!dataValue) {
+        return UA_STATUSCODE_BADINVALIDARGUMENT;
+    }
+
+    // 🔧 OBTENER NODEID STRING
+    std::string nodeIdStr;
+    if (nodeId->identifierType == UA_NODEIDTYPE_STRING) {
+        nodeIdStr = std::string((char*)nodeId->identifier.string.data, 
+                               nodeId->identifier.string.length);
+    } else {
+        return UA_STATUSCODE_BADNODEIDUNKNOWN;
+    }
+    
+    // 🔧 BUSCAR LA VARIABLE ESCRIBIBLE
+    Variable* foundVar = nullptr;
+    for (auto &var : config.variables) {
+        if (var.opcua_name == nodeIdStr && var.has_node && var.writable && var.tag_name != "SimpleVars") {
+            foundVar = &var;
+            break;
+        }
+    }
+    
+    if (!foundVar) {
+        return UA_STATUSCODE_BADNODEIDUNKNOWN;
+    }
+    
+    // 🔧 DEVOLVER VALOR POR DEFECTO SEGÚN TIPO
+    dataValue->hasValue = true;
+    UA_Variant_init(&dataValue->value);
+    
+    if (foundVar->type == Variable::FLOAT) {
+        float defaultValue = 0.0f;
+        UA_Variant_setScalar(&dataValue->value, &defaultValue, &UA_TYPES[UA_TYPES_FLOAT]);
+    } else {
+        int32_t defaultValue = 0;
+        UA_Variant_setScalar(&dataValue->value, &defaultValue, &UA_TYPES[UA_TYPES_INT32]);
+    }
+    
+    if (sourceTimeStamp) {
+        dataValue->hasSourceTimestamp = true;
+        dataValue->sourceTimestamp = UA_DateTime_now();
+    }
+    
     return UA_STATUSCODE_GOOD;
 }
-*/
 
 int getVariableIndex(const std::string &varName)
 {
@@ -544,112 +581,120 @@ static UA_StatusCode writeCallback(UA_Server *server,
                                    const UA_NumericRange *range,
                                    const UA_DataValue *data)
 {
-
-    // 🔍 IGNORAR ESCRITURAS INTERNAS DEL SERVIDOR
-    if (server_writing_internally.load())
-    {
+    // 🔧 VERIFICAR QUE NO ES ESCRITURA INTERNA DEL SERVIDOR
+    if (server_writing_internally.load()) {
+        LOG_DEBUG("📝 Escritura interna detectada - no propagar al PAC");
         return UA_STATUSCODE_GOOD;
     }
 
-    // 🔒 EVITAR PROCESAMIENTO DURANTE ACTUALIZACIONES
-    if (updating_internally.load())
-    {
-        LOG_ERROR("Escritura rechazada: servidor actualizando");
-        return UA_STATUSCODE_BADNOTWRITABLE;
-    }
-
-    // ✅ VALIDACIONES BÁSICAS
-    if (!server || !nodeId || !data || !data->value.data)
-    {
-        LOG_ERROR("Parámetros inválidos en writeCallback");
+    if (!data || !data->hasValue) {
         return UA_STATUSCODE_BADINVALIDARGUMENT;
     }
 
-    // 🔧 MANEJAR NODEID STRING (COMO EN LA VERSIÓN ORIGINAL)
-    if (nodeId->identifierType != UA_NODEIDTYPE_STRING)
-    {
-        LOG_ERROR("Tipo de NodeId no soportado (esperado string)");
-        return UA_STATUSCODE_BADNODEIDUNKNOWN;
-    }
+    // 🔧 DECLARAR nodeIdStr AL INICIO PARA EVITAR SCOPE ISSUES
+    std::string nodeIdStr;
 
-    std::string stringNodeId = std::string((char *)nodeId->identifier.string.data, nodeId->identifier.string.length);
-    LOG_WRITE("📝 ESCRITURA RECIBIDA en NodeId: " << stringNodeId);
-
-    // 🔍 BUSCAR VARIABLE POR NODEID STRING
-    Variable *var = nullptr;
-    for (auto &v : config.variables)
-    {
-        if (v.has_node && v.opcua_name == stringNodeId)
-        {
-            var = &v;
-            break;
+    try {
+        // 🔧 OBTENER NODEID STRING
+        if (nodeId->identifierType == UA_NODEIDTYPE_STRING) {
+            nodeIdStr = std::string((char*)nodeId->identifier.string.data, 
+                                   nodeId->identifier.string.length);
+        } else {
+            LOG_ERROR("❌ NodeId no es string en writeCallback");
+            return UA_STATUSCODE_BADNODEIDUNKNOWN;
         }
-    }
-
-    if (!var)
-    {
-        LOG_ERROR("Variable no encontrada para NodeId: " << stringNodeId);
-        return UA_STATUSCODE_BADNODEIDUNKNOWN;
-    }
-
-    if (!var->writable)
-    {
-        LOG_ERROR("Variable no escribible: " << var->opcua_name);
-        return UA_STATUSCODE_BADNOTWRITABLE;
-    }
-
-    // 🔒 VERIFICAR CONEXIÓN PAC
-    if (!pacClient || !pacClient->isConnected())
-    {
-        LOG_ERROR("PAC no conectado para escritura: " << var->opcua_name);
-        return UA_STATUSCODE_BADCONNECTIONCLOSED;
-    }
-
-    LOG_DEBUG("✅ Procesando escritura para: " << var->opcua_name << " (PAC: " << var->pac_source << ")");
-
-    // 🎯 PROCESAR ESCRITURA SEGÚN TIPO
-    bool write_success = false;
-
-    if (var->type == Variable::FLOAT)
-    {
-        if (data->value.type == &UA_TYPES[UA_TYPES_FLOAT])
-        {
-            float value = *(float *)data->value.data;
-            // TODO: Implementar escritura real al PAC
-            LOG_WRITE("Escribiendo FLOAT " << value << " a " << var->pac_source);
-            write_success = true; // Placeholder
+        
+        // 🔧 BUSCAR LA VARIABLE EN config.variables
+        Variable* foundVar = nullptr;
+        for (auto &var : config.variables) {
+            if (var.opcua_name == nodeIdStr && var.has_node && var.writable) {
+                foundVar = &var;
+                break;
+            }
         }
-        else
-        {
-            LOG_ERROR("Tipo de dato incorrecto para variable FLOAT: " << var->opcua_name);
+        
+        if (!foundVar) {
+            LOG_ERROR("❌ Variable escribible no encontrada: " << nodeIdStr);
+            return UA_STATUSCODE_BADNODEIDUNKNOWN;
+        }
+        
+        // 🔧 VERIFICAR CONEXIÓN PAC - USAR CÓDIGO DE ESTADO CORRECTO
+        if (!pacClient || !pacClient->isConnected()) {
+            LOG_ERROR("❌ PAC no conectado para escribir: " << nodeIdStr);
+            return UA_STATUSCODE_BADCONNECTIONCLOSED;  // 🔧 CAMBIO: _CLOSED en lugar de _LOSS
+        }
+        
+        // 🔧 REGISTRAR ESCRITURA CRÍTICA (evita sobreescritura por updateData)
+        WriteRegistrationManager::registerCriticalWrite(nodeIdStr, "OPC-UA Client");
+        
+        // 🔧 ESCRIBIR AL PAC SEGÚN TIPO Y ORIGEN
+        bool writeSuccess = false;
+        
+        if (foundVar->type == Variable::FLOAT && data->value.type == &UA_TYPES[UA_TYPES_FLOAT]) {
+            float newValue = *(float*)data->value.data;
+            LOG_INFO("📝 Cliente escribiendo FLOAT: " << nodeIdStr << " = " << newValue);
+            
+            if (foundVar->tag_name == "SimpleVars") {
+                // 🔧 VARIABLE SIMPLE - USAR writeSingleFloatVariable
+                writeSuccess = pacClient->writeSingleFloatVariable(foundVar->pac_source, newValue);
+                LOG_INFO("🔧 Escribiendo variable simple: " << foundVar->pac_source << " = " << newValue);
+            } else {
+                // 🔧 VARIABLE DE TABLA POR ÍNDICE - USAR writeFloatTableIndex
+                size_t pos = foundVar->pac_source.find(':');
+                if (pos != string::npos) {
+                    string tableName = foundVar->pac_source.substr(0, pos);
+                    int index = stoi(foundVar->pac_source.substr(pos + 1));
+                    writeSuccess = pacClient->writeFloatTableIndex(tableName, index, newValue);
+                    LOG_INFO("🔧 Escribiendo tabla por índice: " << tableName << "[" << index << "] = " << newValue);
+                } else {
+                    LOG_ERROR("❌ Formato pac_source inválido para tabla: " << foundVar->pac_source);
+                }
+            }
+            
+        } else if (foundVar->type == Variable::INT32 && data->value.type == &UA_TYPES[UA_TYPES_INT32]) {
+            int32_t newValue = *(int32_t*)data->value.data;
+            LOG_INFO("📝 Cliente escribiendo INT32: " << nodeIdStr << " = " << newValue);
+            
+            if (foundVar->tag_name == "SimpleVars") {
+                // 🔧 VARIABLE SIMPLE - USAR writeSingleInt32Variable
+                writeSuccess = pacClient->writeSingleInt32Variable(foundVar->pac_source, newValue);
+                LOG_INFO("🔧 Escribiendo variable simple: " << foundVar->pac_source << " = " << newValue);
+            } else {
+                // 🔧 VARIABLE DE TABLA POR ÍNDICE - USAR writeInt32TableIndex
+                size_t pos = foundVar->pac_source.find(':');
+                if (pos != string::npos) {
+                    string tableName = foundVar->pac_source.substr(0, pos);
+                    int index = stoi(foundVar->pac_source.substr(pos + 1));
+                    writeSuccess = pacClient->writeInt32TableIndex(tableName, index, newValue);
+                    LOG_INFO("🔧 Escribiendo tabla por índice: " << tableName << "[" << index << "] = " << newValue);
+                } else {
+                    LOG_ERROR("❌ Formato pac_source inválido para tabla: " << foundVar->pac_source);
+                }
+            }
+            
+        } else {
+            LOG_ERROR("❌ Tipo de datos no compatible en writeCallback");
+            LOG_ERROR("    Variable: " << nodeIdStr << " (tipo esperado: " << 
+                     (foundVar->type == Variable::FLOAT ? "FLOAT" : "INT32") << ")");
+            LOG_ERROR("    Datos recibidos: tipo OPC-UA = " << data->value.type->typeName);
+            WriteRegistrationManager::consumeWrite(nodeIdStr);
             return UA_STATUSCODE_BADTYPEMISMATCH;
         }
-    }
-    else if (var->type == Variable::INT32)
-    {
-        if (data->value.type == &UA_TYPES[UA_TYPES_INT32])
-        {
-            int32_t value = *(int32_t *)data->value.data;
-            // TODO: Implementar escritura real al PAC
-            LOG_WRITE("Escribiendo INT32 " << value << " a " << var->pac_source);
-            write_success = true; // Placeholder
+        
+        // 🔧 LIMPIAR REGISTRO Y REPORTAR RESULTADO
+        WriteRegistrationManager::consumeWrite(nodeIdStr);
+        
+        if (writeSuccess) {
+            LOG_INFO("✅ Escritura exitosa al PAC: " << nodeIdStr);
+            return UA_STATUSCODE_GOOD;
+        } else {
+            LOG_ERROR("❌ Error escribiendo al PAC: " << nodeIdStr);
+            return UA_STATUSCODE_BADUNEXPECTEDERROR;
         }
-        else
-        {
-            LOG_ERROR("Tipo de dato incorrecto para variable INT32: " << var->opcua_name);
-            return UA_STATUSCODE_BADTYPEMISMATCH;
-        }
-    }
-
-    // ✅ RESULTADO FINAL
-    if (write_success)
-    {
-        LOG_WRITE("✅ Escritura exitosa: " << var->opcua_name);
-        return UA_STATUSCODE_GOOD;
-    }
-    else
-    {
-        LOG_ERROR("❌ Error en escritura: " << var->opcua_name);
+        
+    } catch (const std::exception &e) {
+        LOG_ERROR("❌ Excepción en writeCallback: " << e.what());
+        WriteRegistrationManager::consumeWrite(nodeIdStr);  // 🔧 AHORA nodeIdStr ESTÁ EN SCOPE
         return UA_STATUSCODE_BADINTERNALERROR;
     }
 }
@@ -1276,22 +1321,24 @@ void cleanupAndExit()
 
 void enableWriteCallbacksOnce()
 {
-    LOG_INFO("📝 Configurando callbacks de escritura (solo variables escribibles)...");
+    LOG_INFO("📝 Configurando callbacks de escritura para variables escribibles...");
 
-    // 🔧 POR AHORA, NO CONFIGURAR CALLBACKS PARA EVITAR PROBLEMAS
-    // Solo reportar cuántas variables escribibles tenemos
+    // 🔧 DESHABILITAR WRITECALLBACKS TEMPORALMENTE PARA EVITAR SEGFAULT
+    LOG_INFO("⚠️ WriteCallbacks DESHABILITADOS temporalmente para evitar crashes");
+    LOG_INFO("🔧 Solo funcionalidad de lectura habilitada");
     
     int writableCount = 0;
     for (auto &var : config.variables) {
         if (var.has_node && var.writable && var.tag_name != "SimpleVars") {
             writableCount++;
-            LOG_DEBUG("  📝 Variable escribible detectada: " << var.opcua_name);
+            LOG_DEBUG("  📝 Variable escribible detectada (sin callback): " << var.opcua_name);
         }
     }
 
-    LOG_INFO("📝 Variables escribibles detectadas: " << writableCount << " (callbacks deshabilitados temporalmente)");
+    LOG_INFO("📝 Variables escribibles detectadas: " << writableCount << " (sin callbacks activos)");
+    LOG_INFO("🎯 Las variables seguirán siendo escribibles pero sin propagación automática al PAC");
     
-    // TODO: Implementar callbacks de escritura más adelante cuando sea necesario
+    // TODO: Implementar writeCallbacks cuando el readCallback sea estable
 }
 
 void performImmediateDataUpdate()
