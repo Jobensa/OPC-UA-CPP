@@ -22,7 +22,7 @@ CMAKE_AR:FILEPATH=/usr/bin/ar
 
 //Choose the type of build, options are: None Debug Release RelWithDebInfo
 // MinSizeRel ...
-CMAKE_BUILD_TYPE:STRING=Debug
+CMAKE_BUILD_TYPE:STRING=
 
 //Enable/Disable color output during build.
 CMAKE_COLOR_MAKEFILE:BOOL=ON
@@ -215,11 +215,20 @@ CMAKE_TAPI:FILEPATH=CMAKE_TAPI-NOTFOUND
 // Studio IDE projects all commands are done without /nologo.
 CMAKE_VERBOSE_MAKEFILE:BOOL=FALSE
 
-//Arguments to supply to pkg-config
-PKG_CONFIG_ARGN:STRING=
+//Path to a program.
+PYTHON_EXECUTABLE:FILEPATH=/usr/bin/python3
 
-//pkg-config executable
-PKG_CONFIG_EXECUTABLE:FILEPATH=/usr/bin/pkg-config
+//The directory containing a CMake configuration file for nlohmann_json.
+nlohmann_json_DIR:PATH=/usr/share/cmake/nlohmann_json
+
+//The directory containing a CMake configuration file for open62541.
+open62541_DIR:PATH=/usr/local/lib/cmake/open62541
+
+//Path to the directory that contains the OPC UA schema repository
+open62541_NODESET_DIR:PATH=/usr/local/share/open62541/tools/ua-nodeset
+
+//Path to the directory that contains the tooling of the stack
+open62541_TOOLS_DIR:PATH=/usr/local/share/open62541/tools
 
 //Value Computed by CMake
 pac_to_opcua_BINARY_DIR:STATIC=/media/jose/Datos/Data/Proyectos/PetroSantander/SCADA/pac_to_opcua/build
@@ -229,9 +238,6 @@ pac_to_opcua_IS_TOP_LEVEL:STATIC=ON
 
 //Value Computed by CMake
 pac_to_opcua_SOURCE_DIR:STATIC=/media/jose/Datos/Data/Proyectos/PetroSantander/SCADA/pac_to_opcua
-
-//Path to a library.
-pkgcfg_lib_OPEN62541_open62541:FILEPATH=/usr/local/lib/libopen62541.so
 
 
 ########################
@@ -383,56 +389,16 @@ CMAKE_TAPI-ADVANCED:INTERNAL=1
 CMAKE_UNAME:INTERNAL=/usr/bin/uname
 //ADVANCED property for variable: CMAKE_VERBOSE_MAKEFILE
 CMAKE_VERBOSE_MAKEFILE-ADVANCED:INTERNAL=1
-//Details about finding PkgConfig
-FIND_PACKAGE_MESSAGE_DETAILS_PkgConfig:INTERNAL=[/usr/bin/pkg-config][v1.8.1()]
-OPEN62541_CFLAGS:INTERNAL=-I/usr/local/include
-OPEN62541_CFLAGS_I:INTERNAL=
-OPEN62541_CFLAGS_OTHER:INTERNAL=
-OPEN62541_FOUND:INTERNAL=1
-OPEN62541_INCLUDEDIR:INTERNAL=/usr/local/include
-OPEN62541_INCLUDE_DIRS:INTERNAL=/usr/local/include
-OPEN62541_LDFLAGS:INTERNAL=-L/usr/local/lib;-lopen62541
-OPEN62541_LDFLAGS_OTHER:INTERNAL=
-OPEN62541_LIBDIR:INTERNAL=/usr/local/lib
-OPEN62541_LIBRARIES:INTERNAL=open62541
-OPEN62541_LIBRARY_DIRS:INTERNAL=/usr/local/lib
-OPEN62541_LIBS:INTERNAL=
-OPEN62541_LIBS_L:INTERNAL=
-OPEN62541_LIBS_OTHER:INTERNAL=
-OPEN62541_LIBS_PATHS:INTERNAL=
-OPEN62541_MODULE_NAME:INTERNAL=open62541
-OPEN62541_PREFIX:INTERNAL=/usr/local
-OPEN62541_STATIC_CFLAGS:INTERNAL=-I/usr/local/include
-OPEN62541_STATIC_CFLAGS_I:INTERNAL=
-OPEN62541_STATIC_CFLAGS_OTHER:INTERNAL=
-OPEN62541_STATIC_INCLUDE_DIRS:INTERNAL=/usr/local/include
-OPEN62541_STATIC_LDFLAGS:INTERNAL=-L/usr/local/lib;-lopen62541
-OPEN62541_STATIC_LDFLAGS_OTHER:INTERNAL=
-OPEN62541_STATIC_LIBDIR:INTERNAL=
-OPEN62541_STATIC_LIBRARIES:INTERNAL=open62541
-OPEN62541_STATIC_LIBRARY_DIRS:INTERNAL=/usr/local/lib
-OPEN62541_STATIC_LIBS:INTERNAL=
-OPEN62541_STATIC_LIBS_L:INTERNAL=
-OPEN62541_STATIC_LIBS_OTHER:INTERNAL=
-OPEN62541_STATIC_LIBS_PATHS:INTERNAL=
-OPEN62541_VERSION:INTERNAL=1.3.8
-OPEN62541_open62541_INCLUDEDIR:INTERNAL=
-OPEN62541_open62541_LIBDIR:INTERNAL=
-OPEN62541_open62541_PREFIX:INTERNAL=
-OPEN62541_open62541_VERSION:INTERNAL=
-//ADVANCED property for variable: PKG_CONFIG_ARGN
-PKG_CONFIG_ARGN-ADVANCED:INTERNAL=1
-//ADVANCED property for variable: PKG_CONFIG_EXECUTABLE
-PKG_CONFIG_EXECUTABLE-ADVANCED:INTERNAL=1
+//Details about finding PythonInterp
+FIND_PACKAGE_MESSAGE_DETAILS_PythonInterp:INTERNAL=[/usr/bin/python3][v3.13.5()]
+//Details about finding nlohmann_json
+FIND_PACKAGE_MESSAGE_DETAILS_nlohmann_json:INTERNAL=[/usr/share/cmake/nlohmann_json/nlohmann_jsonConfig.cmake][v3.11.3()]
+//ADVANCED property for variable: PYTHON_EXECUTABLE
+PYTHON_EXECUTABLE-ADVANCED:INTERNAL=1
 //linker supports push/pop state
 _CMAKE_CXX_LINKER_PUSHPOP_STATE_SUPPORTED:INTERNAL=TRUE
 //linker supports push/pop state
 _CMAKE_C_LINKER_PUSHPOP_STATE_SUPPORTED:INTERNAL=TRUE
 //linker supports push/pop state
 _CMAKE_LINKER_PUSHPOP_STATE_SUPPORTED:INTERNAL=TRUE
-__pkg_config_arguments_OPEN62541:INTERNAL=REQUIRED;open62541
-__pkg_config_checked_OPEN62541:INTERNAL=1
-//ADVANCED property for variable: pkgcfg_lib_OPEN62541_open62541
-pkgcfg_lib_OPEN62541_open62541-ADVANCED:INTERNAL=1
-prefix_result:INTERNAL=/usr/local/lib
 

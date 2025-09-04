@@ -118,6 +118,11 @@ extern std::atomic<bool> server_writing_internally;
 #define LOG_ERROR(msg) \
     std::cout << COLOR_RED << "❌ [ERROR] " << COLOR_RESET << msg << std::endl;
 
+  #define   LOG_WARNING(msg) \
+    if (LOG_ENABLED >= 1) { \
+        std::cout << COLOR_YELLOW << "⚠️  [WARN]  " << COLOR_RESET << msg << std::endl; \
+    }
+
 #define LOG_INFO(msg) \
     if (LOG_ENABLED >= 1) { \
         std::cout << COLOR_CYAN << "ℹ️  [INFO]  " << COLOR_RESET << msg << std::endl; \

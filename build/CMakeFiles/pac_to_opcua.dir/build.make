@@ -128,6 +128,7 @@ pac_to_opcua: CMakeFiles/pac_to_opcua.dir/src/opcua_server.cpp.o
 pac_to_opcua: CMakeFiles/pac_to_opcua.dir/src/pac_control_client.cpp.o
 pac_to_opcua: CMakeFiles/pac_to_opcua.dir/build.make
 pac_to_opcua: CMakeFiles/pac_to_opcua.dir/compiler_depend.ts
+pac_to_opcua: /usr/local/lib/libopen62541.so.1.3.8
 pac_to_opcua: CMakeFiles/pac_to_opcua.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/media/jose/Datos/Data/Proyectos/PetroSantander/SCADA/pac_to_opcua/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Linking CXX executable pac_to_opcua"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/pac_to_opcua.dir/link.txt --verbose=$(VERBOSE)

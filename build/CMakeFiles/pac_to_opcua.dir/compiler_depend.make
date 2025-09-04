@@ -1265,54 +1265,6 @@ CMakeFiles/pac_to_opcua.dir/src/pac_control_client.cpp.o: /media/jose/Datos/Data
   /usr/lib/linux/uapi/x86/asm/sockios.h \
   /usr/lib/linux/uapi/x86/asm/types.h
 
-pac_to_opcua: /lib/x86_64-linux-gnu/libc.so.6 \
-  /lib/x86_64-linux-gnu/libm.so.6 \
-  /lib/x86_64-linux-gnu/libmbedcrypto.so.16 \
-  /lib/x86_64-linux-gnu/libmbedx509.so.7 \
-  /lib/x86_64-linux-gnu/libmvec.so.1 \
-  /lib64/ld-linux-x86-64.so.2 \
-  /usr/lib/x86_64-linux-gnu/Scrt1.o \
-  /usr/lib/x86_64-linux-gnu/crti.o \
-  /usr/lib/x86_64-linux-gnu/crtn.o \
-  /usr/lib/x86_64-linux-gnu/libc.so \
-  /usr/lib/x86_64-linux-gnu/libdl.a \
-  /usr/lib/x86_64-linux-gnu/libgcc_s.so.1 \
-  /usr/lib/x86_64-linux-gnu/libm.so \
-  /usr/lib/x86_64-linux-gnu/libopen62541.so \
-  /usr/lib/x86_64-linux-gnu/libpthread.a \
-  /usr/lib/x86_64-linux-gnu/librt.a \
-  /usr/lib/gcc/x86_64-linux-gnu/14/crtbeginS.o \
-  /usr/lib/gcc/x86_64-linux-gnu/14/crtendS.o \
-  /usr/lib/gcc/x86_64-linux-gnu/14/libgcc.a \
-  /usr/lib/gcc/x86_64-linux-gnu/14/libgcc_s.so \
-  /usr/lib/gcc/x86_64-linux-gnu/14/libstdc++.so \
-  /usr/lib/x86_64-linux-gnu/libc_nonshared.a \
-  CMakeFiles/pac_to_opcua.dir/src/main.cpp.o \
-  CMakeFiles/pac_to_opcua.dir/src/opcua_server.cpp.o \
-  CMakeFiles/pac_to_opcua.dir/src/pac_control_client.cpp.o
-
-
-CMakeFiles/pac_to_opcua.dir/src/opcua_server.cpp.o:
-
-/usr/lib/x86_64-linux-gnu/libc_nonshared.a:
-
-/usr/lib/gcc/x86_64-linux-gnu/14/libgcc.a:
-
-/usr/lib/gcc/x86_64-linux-gnu/14/crtendS.o:
-
-/usr/lib/gcc/x86_64-linux-gnu/14/crtbeginS.o:
-
-/usr/lib/x86_64-linux-gnu/librt.a:
-
-/usr/lib/x86_64-linux-gnu/libopen62541.so:
-
-/usr/lib/x86_64-linux-gnu/libdl.a:
-
-/usr/lib/x86_64-linux-gnu/libc.so:
-
-/lib64/ld-linux-x86-64.so.2:
-
-/lib/x86_64-linux-gnu/libmbedcrypto.so.16:
 
 /usr/include/x86_64-linux-gnu/bits/fcntl-linux.h:
 
@@ -1338,8 +1290,6 @@ CMakeFiles/pac_to_opcua.dir/src/opcua_server.cpp.o:
 
 /usr/include/asm-generic/socket.h:
 
-/lib/x86_64-linux-gnu/libmbedx509.so.7:
-
 /media/jose/Datos/Data/Proyectos/PetroSantander/SCADA/pac_to_opcua/src/opcua_server.cpp:
 
 /usr/lib/linux/uapi/x86/asm/posix_types.h:
@@ -1349,8 +1299,6 @@ CMakeFiles/pac_to_opcua.dir/src/opcua_server.cpp.o:
 /usr/include/x86_64-linux-gnu/sys/ucontext.h:
 
 /usr/include/x86_64-linux-gnu/sys/types.h:
-
-CMakeFiles/pac_to_opcua.dir/src/pac_control_client.cpp.o:
 
 /usr/include/x86_64-linux-gnu/sys/single_threaded.h:
 
@@ -1436,8 +1384,6 @@ CMakeFiles/pac_to_opcua.dir/src/pac_control_client.cpp.o:
 
 /usr/include/x86_64-linux-gnu/bits/thread-shared-types.h:
 
-CMakeFiles/pac_to_opcua.dir/src/main.cpp.o:
-
 /usr/include/x86_64-linux-gnu/bits/struct_rwlock.h:
 
 /usr/include/x86_64-linux-gnu/c++/14/bits/cpu_defines.h:
@@ -1520,8 +1466,6 @@ CMakeFiles/pac_to_opcua.dir/src/main.cpp.o:
 
 /usr/include/time.h:
 
-/lib/x86_64-linux-gnu/libmvec.so.1:
-
 /usr/include/stdlib.h:
 
 /usr/lib/linux/uapi/x86/asm/errno.h:
@@ -1578,8 +1522,6 @@ CMakeFiles/pac_to_opcua.dir/src/main.cpp.o:
 
 /usr/include/c++/14/bits/valarray_array.tcc:
 
-/usr/lib/x86_64-linux-gnu/libpthread.a:
-
 /usr/include/c++/14/bits/valarray_array.h:
 
 /usr/include/c++/14/bits/cxxabi_init_exception.h:
@@ -1601,8 +1543,6 @@ CMakeFiles/pac_to_opcua.dir/src/main.cpp.o:
 /usr/include/c++/14/bits/stl_map.h:
 
 /usr/include/c++/14/bits/stl_iterator_base_types.h:
-
-/usr/lib/x86_64-linux-gnu/crti.o:
 
 /usr/include/c++/14/bits/stl_heap.h:
 
@@ -1702,8 +1642,6 @@ CMakeFiles/pac_to_opcua.dir/src/main.cpp.o:
 
 /usr/include/c++/14/bits/locale_conv.h:
 
-/lib/x86_64-linux-gnu/libm.so.6:
-
 /usr/include/x86_64-linux-gnu/bits/fcntl.h:
 
 /usr/include/c++/14/iosfwd:
@@ -1715,8 +1653,6 @@ CMakeFiles/pac_to_opcua.dir/src/main.cpp.o:
 /usr/include/c++/14/pstl/glue_numeric_defs.h:
 
 /usr/include/linux/posix_types.h:
-
-/lib/x86_64-linux-gnu/libc.so.6:
 
 /usr/include/x86_64-linux-gnu/bits/types/sigval_t.h:
 
@@ -1760,8 +1696,6 @@ CMakeFiles/pac_to_opcua.dir/src/main.cpp.o:
 
 /usr/include/c++/14/bits/stl_tree.h:
 
-/usr/lib/gcc/x86_64-linux-gnu/14/libgcc_s.so:
-
 /usr/include/c++/14/bits/chrono.h:
 
 /usr/include/c++/14/bit:
@@ -1783,8 +1717,6 @@ CMakeFiles/pac_to_opcua.dir/src/main.cpp.o:
 /usr/include/c++/14/bits/ios_base.h:
 
 /usr/include/c++/14/bits/specfun.h:
-
-/usr/lib/x86_64-linux-gnu/crtn.o:
 
 /usr/include/x86_64-linux-gnu/bits/waitflags.h:
 
@@ -1874,8 +1806,6 @@ CMakeFiles/pac_to_opcua.dir/src/main.cpp.o:
 
 /media/jose/Datos/Data/Proyectos/PetroSantander/SCADA/pac_to_opcua/include/opcua_server.h:
 
-/usr/lib/x86_64-linux-gnu/libm.so:
-
 /usr/include/c++/14/ios:
 
 /usr/include/asm-generic/int-ll64.h:
@@ -1895,8 +1825,6 @@ CMakeFiles/pac_to_opcua.dir/src/main.cpp.o:
 /usr/include/c++/14/set:
 
 /usr/include/c++/14/bits/functexcept.h:
-
-/usr/lib/gcc/x86_64-linux-gnu/14/libstdc++.so:
 
 /usr/include/c++/14/algorithm:
 
@@ -2156,8 +2084,6 @@ CMakeFiles/pac_to_opcua.dir/src/main.cpp.o:
 
 /usr/include/c++/14/tr1/exp_integral.tcc:
 
-/usr/lib/x86_64-linux-gnu/Scrt1.o:
-
 /usr/include/c++/14/typeinfo:
 
 /usr/include/x86_64-linux-gnu/bits/types/__fpos_t.h:
@@ -2197,8 +2123,6 @@ CMakeFiles/pac_to_opcua.dir/src/main.cpp.o:
 /usr/include/ctype.h:
 
 /usr/include/inttypes.h:
-
-/usr/lib/x86_64-linux-gnu/libgcc_s.so.1:
 
 /usr/include/linux/close_range.h:
 

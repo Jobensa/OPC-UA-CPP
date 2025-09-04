@@ -11,6 +11,11 @@ set(CMAKE_MAKEFILE_DEPENDS
   "CMakeFiles/3.31.6/CMakeCCompiler.cmake"
   "CMakeFiles/3.31.6/CMakeCXXCompiler.cmake"
   "CMakeFiles/3.31.6/CMakeSystem.cmake"
+  "/usr/local/lib/cmake/open62541/open62541Config.cmake"
+  "/usr/local/lib/cmake/open62541/open62541ConfigVersion.cmake"
+  "/usr/local/lib/cmake/open62541/open62541Macros.cmake"
+  "/usr/local/lib/cmake/open62541/open62541Targets-release.cmake"
+  "/usr/local/lib/cmake/open62541/open62541Targets.cmake"
   "/usr/share/cmake-3.31/Modules/CMakeCCompiler.cmake.in"
   "/usr/share/cmake-3.31/Modules/CMakeCCompilerABI.c"
   "/usr/share/cmake-3.31/Modules/CMakeCInformation.cmake"
@@ -27,6 +32,7 @@ set(CMAKE_MAKEFILE_DEPENDS
   "/usr/share/cmake-3.31/Modules/CMakeDetermineCompilerSupport.cmake"
   "/usr/share/cmake-3.31/Modules/CMakeDetermineSystem.cmake"
   "/usr/share/cmake-3.31/Modules/CMakeFindBinUtils.cmake"
+  "/usr/share/cmake-3.31/Modules/CMakeFindDependencyMacro.cmake"
   "/usr/share/cmake-3.31/Modules/CMakeGenericSystem.cmake"
   "/usr/share/cmake-3.31/Modules/CMakeInitializeConfigs.cmake"
   "/usr/share/cmake-3.31/Modules/CMakeLanguageInformation.cmake"
@@ -100,7 +106,7 @@ set(CMAKE_MAKEFILE_DEPENDS
   "/usr/share/cmake-3.31/Modules/Compiler/zOS-CXX-DetermineCompiler.cmake"
   "/usr/share/cmake-3.31/Modules/FindPackageHandleStandardArgs.cmake"
   "/usr/share/cmake-3.31/Modules/FindPackageMessage.cmake"
-  "/usr/share/cmake-3.31/Modules/FindPkgConfig.cmake"
+  "/usr/share/cmake-3.31/Modules/FindPythonInterp.cmake"
   "/usr/share/cmake-3.31/Modules/Internal/CMakeCLinkerInformation.cmake"
   "/usr/share/cmake-3.31/Modules/Internal/CMakeCXXLinkerInformation.cmake"
   "/usr/share/cmake-3.31/Modules/Internal/CMakeCommonLinkerInformation.cmake"
@@ -120,6 +126,9 @@ set(CMAKE_MAKEFILE_DEPENDS
   "/usr/share/cmake-3.31/Modules/Platform/Linux-Initialize.cmake"
   "/usr/share/cmake-3.31/Modules/Platform/Linux.cmake"
   "/usr/share/cmake-3.31/Modules/Platform/UnixPaths.cmake"
+  "/usr/share/cmake/nlohmann_json/nlohmann_jsonConfig.cmake"
+  "/usr/share/cmake/nlohmann_json/nlohmann_jsonConfigVersion.cmake"
+  "/usr/share/cmake/nlohmann_json/nlohmann_jsonTargets.cmake"
   )
 
 # The corresponding makefile is:
