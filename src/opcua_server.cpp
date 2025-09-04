@@ -521,6 +521,7 @@ void processConfigIntoVariables()
 
 // ============== CALLBACKS CORREGIDOS ==============
 
+// Para UA_DataSource.write
 // 🔧 WRITECALLBACK PORTADO DE v1.0.0 - FUNCIONABA PERFECTAMENTE
 static void writeCallback(UA_Server *server,
                          const UA_NodeId *sessionId,
@@ -663,8 +664,6 @@ static void readCallback(UA_Server *server,
         LOG_DEBUG("📖 Lectura de NodeId: " << numericNodeId);
     }
 }
-
-// ============== CREACIÓN DE NODOS ==============
 
 void createNodes()
 {
@@ -918,7 +917,7 @@ void updateData()
 
                 // Verificar si es variable de tabla o simple
                 size_t pos = var.pac_source.find(':');
-                if (pos != string::npos)
+                if (pos != std::string::npos)
                 {
                     // Variable de tabla
                     string table = var.pac_source.substr(0, pos);
@@ -1023,14 +1022,19 @@ void updateData()
                     int vars_updated = 0;
                     for (const auto &var : vars)
                     {
-                        // 🔧 PROCESAR TODAS LAS VARIABLES, NO SOLO INT32
+                        // 🔒 VERIFICAR SI VARIABLE TIENE ESCRITURA PENDIENTE
+                        if (var->writable && WriteRegistrationManager::isWriteRegistered(var->opcua_name)) {
+                            LOG_DEBUG("🔒 Saltando variable de tabla con escritura pendiente: " << var->opcua_name);
+                            continue;
+                        }
+
+                        // 🔧 PROCESAR TODAS LAS VARIABLES (resto del código igual)
                         size_t pos = var->pac_source.find(':');
                         int index = stoi(var->pac_source.substr(pos + 1));
                         int arrayIndex = index - minIndex;
 
                         if (arrayIndex >= 0 && arrayIndex < (int)values.size())
                         {
-                            // 🔧 USAR NODEID STRING
                             UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char *>(var->opcua_name.c_str()));
 
                             UA_Variant value;
@@ -1047,6 +1051,11 @@ void updateData()
                             if (result == UA_STATUSCODE_GOOD)
                             {
                                 vars_updated++;
+                                
+                                // 🔧 CONSUMIR ESCRITURA SI EXISTE
+                                if (var->writable) {
+                                    WriteRegistrationManager::consumeWrite(var->opcua_name);
+                                }
                             }
                             else
                             {
@@ -1282,6 +1291,8 @@ void cleanupAndExit()
     cleanupServer();
 }
 
+// ...existing code... (líneas 1410-1440, usar ValueCallback como en v1.0.0)
+
 void enableWriteCallbacksOnce()
 {
     LOG_INFO("📝 Configurando callbacks de escritura para variables escribibles...");
@@ -1319,7 +1330,6 @@ void enableWriteCallbacksOnce()
     LOG_INFO("🔧 SimpleVars mantienen lectura/escritura normal (sin callbacks)");
 }
 
-
 void performImmediateDataUpdate()
 {
     LOG_INFO("🚀 Realizando actualización inmediata de datos para evitar valores null...");
@@ -1350,7 +1360,7 @@ void performImmediateDataUpdate()
         if (!var.has_node) continue;
         
         size_t pos = var.pac_source.find(':');
-        if (pos != string::npos) {
+        if (pos != std::string::npos) {
             string table = var.pac_source.substr(0, pos);
             tableVars[table].push_back(&var);
         } else {
