@@ -1,398 +1,423 @@
-# Servidor OPC UA con Protocolo PAC Control para PetroSantander SCADA
 
-Este proyecto implementa un servidor OPC UA que se comunica directamente con dispositivos PAC (Process Automation Controller) de Opto 22 usando el protocolo nativo PAC Control, proporcionando acceso completo de **lectura y escritura** a las tablas internas y variables individuales del controlador.
+- Repositorio con solo archivos fuente necesarios"# PAC to OPC-UA Server
 
-## Características
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![C++](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
+![OPC-UA](https://img.shields.io/badge/OPC--UA-open62541-green.svg)
+![Status](https://img.shields.io/badge/status-stable-brightgreen.svg)
 
-- **Protocolo PAC Control nativo completo**: Comunicación directa TCP puerto 22001
-- **Lectura y escritura completa**: Variables de tabla y variables individuales
-- **Doble formato de respuesta**: ASCII para variables individuales, binario para tablas
-- **Servidor OPC UA integrado**: Compatible con clientes OPC UA estándar
-- **Alta confiabilidad**: Protocolo binario nativo sin dependencias externas
-- **Mapeo configurable**: Tags mapeados a variables PAC específicas
-- **Soporte para múltiples tipos**: Float (IEEE 754), Int32, variables individuales
-- **Variables escribibles inteligentes**: Solo SET_xxx, E_xxx, SetHH/H/L/LL, SIM_Value
-- **Sistema de debug avanzado**: Logs configurables con macros DEBUG_VERBOSE/DEBUG_INFO
-- **Thread-safe**: Comunicación segura concurrente
-- **Notación científica**: Soporte completo para valores grandes (ej: 1.234560e+05)
+Un servidor OPC-UA bidireccional que actúa como gateway entre controladores PAC (Process Automation Controller) y clientes OPC-UA, desarrollado para el sistema SCADA de PetroSantander.
 
-## Protocolo PAC Control Completamente Implementado
+## 📋 Descripción
 
-### Comandos de Lectura
+Este servidor permite:
+- **Lectura en tiempo real** de variables desde controladores PAC hacia clientes OPC-UA
+- **Escritura bidireccional** desde clientes OPC-UA hacia el controlador PAC
+- **Organización jerárquica** de variables por TAG en el espacio de nombres OPC-UA
+- **Soporte completo** para variables simples y de tabla (TBL_*)
+- **Detección automática** de variables escribibles
+- **Reconexión automática** al controlador PAC
 
-#### Lectura de Tablas (Respuesta Binaria)
-- **Formato**: `"<end_pos> 0 }<tabla> TRange.\r"`
-- **Ejemplo**: `"9 0 }TBL_PT_11001 TRange.\r"`
-- **Respuesta**: head 00 y Binario IEEE 754 little endian (40 bytes para 10 floats)
+## 🚀 Características Principales
 
-#### Lectura de Variables Individuales (Respuesta ASCII)
-- **Float**: `^<variable> @@ F.\r`
-  - Ejemplo: `^F_CPL_11001 @@ F.\r`
-- **Int32**: `^<variable> @@ .\r`
-  - Ejemplo: `^STATUS_BATCH @@ .\r`
-- **Respuesta**: ASCII terminado en espacio (0x20)
-  - Ejemplos: `"1234.5 "`, `"1.234560e+05 "`, `"42 "`
+### ✅ Comunicación Bidireccional
+- 📖 **Lectura**: Variables del PAC → Clientes OPC-UA
+- 📝 **Escritura**: Clientes OPC-UA → Variables del PAC
+- 🔄 **Tiempo real**: Actualización configurable (default: 2 segundos)
+- 🛡️ **Detección inteligente**: Distingue escrituras internas vs. externas
 
-### Comandos de Escritura
+### ✅ Tipos de Variables Soportadas
+- **Variables Simples**: Valores individuales del PAC
+- **Variables de Tabla**: Arrays indexados (TBL_TT_, TBL_PT_, TBL_LT_, etc.)
+- **Variables API**: Parámetros de control API
+- **Variables Batch**: Datos de proceso por lotes
+- **Variables de Alarma**: Estados de alarmas (TBL_TA_, TBL_PA_, etc.)
 
-#### Escritura de Variables Individuales
-- **Float**: `<valor> ^<variable> @!\r`
-  - Ejemplo: `123.45 ^F_CPL_11001 @!\r`
-- **Int32**: `<valor> ^<variable> @!\r`
-  - Ejemplo: `42 ^STATUS_BATCH @!\r`
+### ✅ Variables Escribibles Automáticas
+- `SetHH`, `SetH`, `SetL`, `SetLL` (Límites de alarma)
+- `SIM_Value` (Valores de simulación)
+- `SP` (SetPoint PID)
+- `CV` (Control Value PID)
+- `Kp`, `Ki`, `Kd` (Parámetros PID)
+- `auto_manual` (Modo automático/manual)
+- `CPL`, `CTL` (Variables API)
 
-#### Escritura en Tablas
-- **Float**: `<valor> <index> }<tabla> TABLE!\r`
-  - Ejemplo: `123.45 2 }TBL_PT_11001 TABLE!\r`
-- **Int32**: `<valor> <index> }<tabla> TABLE!\r`
-  - Ejemplo: `42 3 }TBL_DA_0001 TABLE!\r`
+### ✅ Tipos de Datos
+- **FLOAT**: Variables analógicas (temperaturas, presiones, niveles)
+- **INT32**: Variables digitales y estados
 
-### Protocolo de Comunicación
-- **Puerto**: 22001 TCP (estándar PAC Control)
-- **Terminadores**: 
-  - Comando: `\r` (0x0D)
-  - Respuesta ASCII: espacio (0x20)
-- **Formato de datos**: 
-  - Tablas: IEEE 754 little endian
-  - Variables individuales: ASCII con soporte científico
+## 🛠️ Tecnologías
 
-## Estructura del Proyecto
+- **Lenguaje**: C++17
+- **OPC-UA**: open62541 library
+- **Comunicación PAC**: Socket TCP
+- **Configuración**: JSON
+- **Build System**: CMake
+- **Logging**: Sistema personalizado con colores
+
+## 📁 Estructura del Proyecto
 
 ```
-├── src/
-│   ├── main_integrated.cpp           # Aplicación principal integrada
-│   ├── opcua_server_integrated.cpp   # Servidor OPC UA con lectura/escritura PAC
-│   └── pac_control_client..cpp       # Cliente PAC Control completo (lectura/escritura)
-├── include/
-│   ├── common.h                      # Macros de debug configurables
-│   ├── opcua_server_integrated.h     # Interface servidor OPC UA
-│   └── pac_control_client.h          # Interface PAC Control completa
-├── build/                            # Archivos compilados
-├── pac_config.json                   # Configuración de TAGs PAC (21 TAGs reales)
-├── Makefile                          # Sistema de compilación
-└── README.md                         # Esta documentación
+pac_to_opcua/
+├── src/                          # Código fuente
+│   ├── main.cpp                 # Punto de entrada
+│   ├── opcua_server.cpp         # Servidor OPC-UA principal
+│   └── pac_control_client.cpp   # Cliente para comunicación PAC
+├── include/                      # Headers
+│   ├── common.h                 # Estructuras y configuración global
+│   ├── opcua_server.h           # Definiciones del servidor
+│   └── pac_control_client.h     # Definiciones del cliente PAC
+├── tags.json                    # Configuración de variables
+├── CMakeLists.txt              # Configuración de build
+├── .gitignore                  # Archivos ignorados por Git
+├── production.sh               # Script de producción
+├── README.md                   # Este archivo
+└── DEPLOYMENT.md               # Guía de despliegue
 ```
 
-## Variables y Escritura OPC UA
+## 🔧 Instalación
 
-### Variables Escribibles Automáticamente
-El servidor OPC UA permite escritura **solo en variables apropiadas**:
-
-#### Variables de Tabla Escribibles:
-- `SetHH`, `SetH`, `SetL`, `SetLL` (setpoints de alarmas)
-- `SIM_Value` (valor de simulación)
-- `SET_xxx` (variables de configuración)
-- `E_xxx` (variables de habilitación)
-
-#### Variables de Tabla Solo Lectura:
-- `Input`, `PV`, `Min`, `Max`, `Percent` (valores del proceso)
-- `ALARM_HH`, `ALARM_H`, `ALARM_L`, `ALARM_LL`, `COLOR` (estados de alarma)
-
-#### Variables Individuales:
-- **Todas las variables float/int32 individuales son escribibles**
-
-### Mapeo Inteligente de Escritura
-```
-TAG.SetHH     → TBL_TAG[1] = valor    ✅ ESCRIBIBLE
-TAG.PV        → TBL_TAG[6] = valor    ❌ SOLO LECTURA
-F_CPL_11001   → ^F_CPL_11001 @!\r     ✅ ESCRIBIBLE
-STATUS_BATCH  → ^STATUS_BATCH @!\r    ✅ ESCRIBIBLE
-```
-
-## Dependencias
-
-### Librerías del sistema (Ubuntu/Debian):
-```bash
-sudo apt-get update
-sudo apt-get install -y build-essential libopen62541-dev libopen62541-1 nlohmann-json3-dev
-```
-
-## Compilación
+### Prerequisitos
 
 ```bash
-# Compilar proyecto 
+# Ubuntu/Debian
+sudo apt update
+sudo apt install build-essential cmake git
+sudo apt install libopen62541-dev nlohmann-json3-dev
+
+# CentOS/RHEL
+sudo yum groupinstall "Development Tools"
+sudo yum install cmake git open62541-devel nlohmann-json-devel
+```
+
+### Compilación
+
+```bash
+# Clonar repositorio
+git clone https://github.com/tu-usuario/pac_to_opcua.git
+cd pac_to_opcua
+
+# Compilar
+mkdir build
+cd build
+cmake ..
 make
 
-# Compilar con información de debug
-make debug
-
-# Compilar versión optimizada
-make release
-
-# Limpiar archivos objeto
+# O usar Makefile directo
 make clean
-
-# Recompilar desde cero
-make rebuild
-
-# Compilar y ejecutar
-make run
+make
 ```
 
-## Configuración de Debug
+## ⚙️ Configuración
 
-### Control de Logs en `include/common.h`:
+### Archivo `tags.json`
 
-```cpp
-// Configuración de debug
-#define ENABLE_INFO      // ✅ Mensajes informativos básicos
-// #define ENABLE_VERBOSE   // ❌ Debug detallado (comentar para producción)
-```
-
-#### Niveles de Debug:
-- **Silencioso**: Comentar ambas macros (solo errores críticos)
-- **Normal**: Solo `ENABLE_INFO` (info básica de operaciones)
-- **Completo**: Ambas macros (debug detallado de protocolos)
-
-## Configuración
-
-### 1. Configuración del PAC
-
-Editar `pac_config.json`:
+Define la estructura de variables que el servidor expondrá:
 
 ```json
 {
-    "pac_config": {
-        "ip": "192.168.1.30",         // IP del dispositivo PAC Opto 22
-        "port": 22001,                // Puerto PAC Control (SIEMPRE 22001)
-        "timeout_ms": 5000            // Timeout de conexión
-    },
-    "opcua_port": 4840,               // Puerto del servidor OPC UA
-    "update_interval_ms": 2000        // Intervalo de actualización
+  "pac_ip": "192.168.1.30",
+  "pac_port": 22001,
+  "opcua_port": 4840,
+  "update_interval_ms": 2000,
+  "server_name": "PAC Control SCADA Server",
+  
+  "TBL_tags": [
+    {
+      "name": "TT_11001",
+      "value_table": "TBL_TT_11001",
+      "alarm_table": "TBL_TA_11001",
+      "variables": ["PV", "SV", "SetHH", "SetH", "SetL", "SetLL"],
+      "alarms": ["HI", "LO", "HIHI", "LOLO", "BAD"]
+    }
+  ],
+  
+  "TBL_tags_api": [
+    {
+      "name": "API_11001",
+      "value_table": "TBL_API_11001", 
+      "variables": ["IV", "CPL", "CTL", "API"]
+    }
+  ],
+  
+  "BATCH_tags": [
+    {
+      "name": "BATCH_001",
+      "value_table": "TBL_BATCH_001",
+      "variables": ["Phase", "Step", "Progress", "Status"]
+    }
+  ]
 }
 ```
 
-### 2. Configuración de Tags
+### Parámetros de Configuración
 
-El archivo `pac_config.json` contiene:
+| Parámetro | Descripción | Default |
+|-----------|-------------|---------|
+| `pac_ip` | Dirección IP del controlador PAC | `192.168.1.30` |
+| `pac_port` | Puerto TCP del PAC | `22001` |
+| `opcua_port` | Puerto del servidor OPC-UA | `4840` |
+| `update_interval_ms` | Intervalo de actualización (ms) | `2000` |
+| `server_name` | Nombre del servidor OPC-UA | `PAC Control SCADA Server` |
 
-- **Variables de tabla**: 21 tags completos del PAC S1
-- **Variables individuales**: Float e Int32 independientes
-- **Mapeo automático**: A nodos OPC UA con escritura inteligente
+## 🚀 Uso
 
-```json
-{
-    "tags": [
-        {
-            "name": "TT_11001",
-            "value_table": "TBL_TT_11001",
-            "alarm_table": "TBL_TA_11001",
-            "variables": ["Input", "SetHH", "SetH", "SetL", "SetLL", 
-                         "SIM_Value", "PV", "Min", "Max", "Percent"],
-            "alarms": ["ALARM_HH", "ALARM_H", "ALARM_L", "ALARM_LL", "COLOR"]
-        }
-    ],
-    "global_float_variables": [
-        {"name": "F_Current_Flow", "pac_tag": "F_CPL_11001", "description": "Flujo actual"},
-        {"name": "F_Total_Volume", "pac_tag": "F_TOTAL_VOL", "description": "Volumen total"}
-    ],
-    "global_int32_variables": [
-        {"name": "Status_Batch", "pac_tag": "STATUS_BATCH", "description": "Estado del batch"},
-        {"name": "Pump_Status", "pac_tag": "PUMP_CTRL", "description": "Estado de bomba"}
-    ]
-}
-```
-
-## Uso
-
-### Inicio del Servidor
+### Ejecución Básica
 
 ```bash
-./build/opcua_telemetria_server
+# Ejecutar servidor
+./pac_to_opcua
+
+# Con logs detallados
+VERBOSE_DEBUG=1 ./pac_to_opcua
+
+# Modo silencioso
+SILENT_MODE=1 ./pac_to_opcua
 ```
 
-El servidor iniciará:
-1. **Carga de configuración** desde `pac_config.json`
-2. **Conexión PAC S1** (puerto 22001 con retry automático)
-3. **Servidor OPC UA** en puerto 4840
-4. **Mapeo dinámico** de variables con escritura inteligente
-5. **Lectura cíclica** de tablas e individuales
-6. **Escritura on-demand** desde clientes OPC UA
+### Script de Producción
 
-### Logs de Operación Normal
+```bash
+# Usar script de producción
+./production.sh
 
-```
-🚀 SERVIDOR OPC UA + CLIENTE PAC CONTROL INTEGRADO
-✅ Conectado al PAC en 192.168.1.30:22001
-🏗️ Creando nodos OPC UA con capacidad de escritura...
-✓ Tabla TBL_TT_11001 leída: 10 valores
-✅ Variable float individual leída: F_CPL_11001 = 1234.5
-📝 Variable ESCRIBIBLE: TT_11001.SetHH
-👁️ Variable SOLO LECTURA: TT_11001.PV
-🌐 Servidor OPC UA iniciado en puerto 4840
+# El script incluye:
+# - Verificación de dependencias
+# - Compilación optimizada
+# - Ejecución con manejo de errores
+# - Logging a archivo
 ```
 
-### Conectar Cliente OPC UA
+### Conexión de Clientes
 
-- **Endpoint**: `opc.tcp://localhost:4840`
-- **Namespace**: 1
-- **Estructura de nodos**:
-  ```
-  Objects/
-  ├── TT_11001/           (TAG de temperatura)
-  │   ├── Input           (solo lectura)
-  │   ├── SetHH           (escribible)
-  │   ├── SetH            (escribible)
-  │   ├── PV              (solo lectura)
-  │   └── ...
-  ├── F_Current_Flow      (variable individual escribible)
-  ├── Status_Batch        (variable individual escribible)
-  └── ...
-  ```
-
-### Operaciones de Escritura
-
-#### Desde Cliente OPC UA:
 ```
-Escribir TT_11001.SetHH = 85.5
-→ PAC: "85.5 1 }TBL_TT_11001 TABLE!\r"
-→ Log: "✅ Escritura exitosa en PAC: TT_11001.SetHH"
-
-Escribir F_Current_Flow = 123.45
-→ PAC: "123.45 ^F_CPL_11001 @!\r"  
-→ Log: "✅ Variable float individual leída: F_CPL_11001 = 123.45"
+Endpoint OPC-UA: opc.tcp://localhost:4840
+Security: None (configurable)
 ```
 
-## Protocolo PAC Control - Detalles Técnicos
+**Clientes Recomendados:**
+- UAExpert (Unified Automation)
+- OPC Expert (Matrikon)
+- Prosys OPC Client
+- Cualquier cliente OPC-UA estándar
 
-### Manejo de Formatos Numéricos
+## 📊 Estructura de Variables OPC-UA
 
-#### Notación Científica (Variables Individuales):
+El servidor organiza las variables en una estructura jerárquica:
+
 ```
-PAC Response: "1.234560e+05 "  → OPC UA: 123456.0
-PAC Response: "1.23e-03 "      → OPC UA: 0.00123
-PAC Response: "-2.34e-05 "     → OPC UA: -0.0000234
+Root/
+├── TT_11001/                    # TAG de Temperatura
+│   ├── PV                      # Valor del proceso (FLOAT, read-only)
+│   ├── SV                      # Valor simulado (FLOAT, read-only)
+│   ├── SetHH                   # Límite alto-alto (FLOAT, writable)
+│   ├── SetH                    # Límite alto (FLOAT, writable)
+│   ├── SetL                    # Límite bajo (FLOAT, writable)
+│   └── SetLL                   # Límite bajo-bajo (FLOAT, writable)
+├── PT_11001/                    # TAG de Presión
+│   ├── PV
+│   ├── SP                      # SetPoint (FLOAT, writable)
+│   └── CV                      # Control Value (FLOAT, writable)
+├── API_11001/                   # TAG API
+│   ├── IV                      # Valor instantáneo (FLOAT, read-only)
+│   ├── CPL                     # Compensación (FLOAT, writable)
+│   └── CTL                     # Control (FLOAT, writable)
+└── SimpleVars/                  # Variables simples
+    ├── TankLevel               # Nivel de tanque (FLOAT, read-only)
+    └── PumpStatus              # Estado de bomba (INT32, read-only)
 ```
 
-#### Valores Normales:
-```
-PAC Response: "1234.5 "        → OPC UA: 1234.5
-PAC Response: "42 "            → OPC UA: 42
+## 🔧 Arquitectura
+
+### Componentes Principales
+
+1. **OPC-UA Server** (`opcua_server.cpp`)
+   - Manejo del servidor open62541
+   - Creación y gestión de nodos
+   - WriteCallback para escrituras de clientes
+   - UpdateData para lectura del PAC
+
+2. **PAC Control Client** (`pac_control_client.cpp`)
+   - Comunicación TCP con controlador PAC
+   - Lectura de variables simples y tablas
+   - Escritura de valores al PAC
+   - Manejo de reconexión automática
+
+3. **Common** (`common.h`)
+   - Estructuras de datos unificadas
+   - Sistema de logging
+   - Variables globales thread-safe
+
+### Flujo de Datos
+
+```mermaid
+graph LR
+    A[Controlador PAC] -->|TCP Socket| B[PAC Client]
+    B --> C[OPC-UA Server]
+    C -->|OPC-UA| D[Cliente SCADA]
+    D -->|Write Request| C
+    C --> B
+    B -->|TCP Socket| A
 ```
 
-### Terminadores de Protocolo:
-```
-Comando → PAC:     "comando\r"           (0x0D)
-PAC → Respuesta:   "valor "              (terminado en 0x20)
-Tabla → PAC:       datos binarios        (IEEE 754 little endian)
-```
+### Threading
 
-## Troubleshooting
+- **Hilo Principal**: Servidor OPC-UA y manejo de conexiones
+- **Hilo de Actualización**: Lectura periódica del PAC
+- **WriteCallback**: Procesamiento asíncrono de escrituras
 
-### Errores de Conexión PAC
-```
-❌ Error al conectar con PAC: Connection refused
-```
-**Solución**:
-- Verificar IP del PAC en `pac_config.json`
-- Verificar que puerto 22001 esté abierto
-- Verificar conectividad de red: `ping 192.168.1.30`
+## 📝 Logging
 
-### Errores de Protocolo
-```
-⚠️ TIMEOUT recibiendo respuesta ASCII después de 3000ms
-```
-**Solución**:
-- Verificar sintaxis de comando PAC
-- Revisar que la variable existe en el PAC
-- Aumentar timeout en configuración
+Sistema de logging con colores y niveles:
 
-### Variables No Escribibles
-```
-🔒 Variable de tabla SOLO LECTURA: TT_11001.PV
-```
-**Comportamiento normal**: Solo variables SET_xxx, E_xxx, etc. son escribibles.
-
-### Debug Detallado
-Para debug completo, descomentar en `include/common.h`:
 ```cpp
-#define ENABLE_VERBOSE   // ✅ Debug detallado activado
+LOG_ERROR("Mensaje de error");    // ❌ [ERROR] - Siempre visible
+LOG_INFO("Información");          // ℹ️  [INFO]  - Modo normal
+LOG_DEBUG("Debug detallado");     // 🔧 [DEBUG] - Modo verbose
+LOG_WRITE("Operación escritura"); // 📝 [WRITE] - Escrituras al PAC
+LOG_PAC("Comunicación PAC");      // 🔌 [PAC]   - Operaciones PAC
 ```
 
-Logs resultantes:
-```
-📡 Byte recibido: 0x31 ('1')
-📡 Byte recibido: 0x32 ('2')
-🔍 ASCII RESPONSE: '1234.5'
-✅ CONVERSIÓN EXITOSA: '1234.5' -> 1234.5
-```
+## 🔒 Seguridad
 
-## Desarrollo y Extensiones
+### Configuración Actual
+- **Sin autenticación**: Para desarrollo y redes internas
+- **Sin encriptación**: Comunicación en texto plano
 
-### Estado Actual
-- ✅ **Protocolo PAC Control**: Completamente implementado (lectura/escritura)
-- ✅ **Variables individuales**: Float/Int32 con notación científica
-- ✅ **Escritura inteligente**: Solo variables apropiadas
-- ✅ **21 TAGs configurados**: Mapeo completo del PAC S1
-- ✅ **Debug configurable**: Sistema de logs avanzado
-- ✅ **Manejo de errores**: Reconnección automática y validación
+### Recomendaciones para Producción
+- Implementar certificados X.509 para OPC-UA
+- Configurar autenticación de usuarios
+- Usar VPN o redes segmentadas
+- Configurar firewall para puerto 4840
 
-### Agregar Nuevas Variables
+## 🧪 Testing
 
-#### Variables Individuales:
-```json
-"global_float_variables": [
-    {
-        "name": "Nueva_Variable",
-        "pac_tag": "NUEVA_VAR_PAC", 
-        "description": "Descripción"
-    }
-]
-```
+### Pruebas Manuales
 
-#### TAGs de Tabla:
-```json
-"tags": [
-    {
-        "name": "NUEVO_TAG",
-        "value_table": "TBL_NUEVO_TAG",
-        "alarm_table": "TBL_ALARMA_TAG",
-        "variables": ["Input", "SetHH", "SetH", "PV"],
-        "alarms": ["ALARM_HH", "ALARM_H"]
-    }
-]
+```bash
+# 1. Verificar conectividad PAC
+telnet 192.168.1.30 22001
+
+# 2. Conectar cliente OPC-UA
+# Endpoint: opc.tcp://localhost:4840
+
+# 3. Verificar lectura de variables
+# Navegar estructura de nodos y leer valores
+
+# 4. Probar escritura
+# Escribir valor a variable escribible (ej: TT_11001.SetHH)
 ```
 
-### Performance y Optimización
+### Debugging
 
-#### Configuración de Intervalos:
-```json
-{
-    "update_interval_ms": 1000,    // Más frecuente = más carga
-    "pac_config": {
-        "timeout_ms": 3000         // Timeout más bajo = respuesta más rápida
-    }
-}
+```bash
+# Ejecutar con debugging
+gdb ./pac_to_opcua
+(gdb) run
+(gdb) bt  # Stack trace si hay crash
+
+# Logs detallados
+VERBOSE_DEBUG=1 ./pac_to_opcua 2>&1 | tee debug.log
 ```
 
-#### Cache de Variables:
-```cpp
-// En pac_control_client..cpp
-cache_enabled = true;  // Habilitar cache para mejor performance
+## 📋 Troubleshooting
+
+### Problemas Comunes
+
+**Error: "Cannot connect to PAC"**
+```bash
+# Verificar conectividad
+ping 192.168.1.30
+telnet 192.168.1.30 22001
+
+# Verificar configuración
+cat tags.json | grep pac_ip
 ```
 
-## Arquitectura del Sistema
+**Error: "OPC-UA server port already in use"**
+```bash
+# Verificar puerto
+sudo netstat -tulpn | grep 4840
+sudo lsof -i :4840
 
-### Flujo de Datos Completo:
-```
-Cliente OPC UA → Servidor OPC UA → PACControlClient → PAC S1
-     ↑                                                    ↓
-  Escritura                                         Lectura/Escritura
-     ↓                                                    ↑
- Respuesta ← Mapeo Dinámico ← ASCII/Binario ← Protocolo PAC
+# Cambiar puerto en tags.json
 ```
 
-### Tipos de Variables Soportadas:
-1. **Variables de tabla** (binario): 21 TAGs × 15 variables
-2. **Variables individuales** (ASCII): Float/Int32 ilimitadas
-3. **Escritura selectiva**: Solo variables apropiadas
-4. **Notación científica**: Soporte completo para rangos amplios
+**Variables no aparecen en cliente OPC-UA**
+```bash
+# Verificar logs de creación de nodos
+./pac_to_opcua 2>&1 | grep "Creando nodo"
 
-## Autor
+# Verificar configuración tags.json
+```
 
-Jose Salamanca - PetroSantander SCADA Project  
-Protocolo PAC Control completamente reverse-engineered e implementado
+**Escrituras no funcionan**
+```bash
+# Verificar variables escribibles
+./pac_to_opcua 2>&1 | grep "escribible"
 
-## Licencia
+# Verificar logs de writeCallback
+./pac_to_opcua 2>&1 | grep "writeCallback"
+```
 
-Proyecto privado - PetroSantander
+## 🚀 Roadmap
+
+### v1.3.0 (Próximo)
+- [ ] Autenticación de usuarios OPC-UA
+- [ ] Certificados X.509 para seguridad
+- [ ] Métricas y estadísticas de rendimiento
+- [ ] API REST para configuración
+
+### v1.4.0 (Futuro)
+- [ ] Eventos y alarmas OPC-UA
+- [ ] Interfaz web de monitoreo
+- [ ] Soporte para múltiples controladores PAC
+- [ ] Base de datos para historiales
+
+### v2.0.0 (Visión)
+- [ ] Clustering y alta disponibilidad
+- [ ] Machine Learning para predicción de fallos
+- [ ] Integración con sistemas IoT
+- [ ] Dashboard avanzado
+
+## 🤝 Contribución
+
+1. **Fork** el repositorio
+2. **Crear rama** para feature (`git checkout -b feature/nueva-funcionalidad`)
+3. **Commit** cambios (`git commit -am 'Add nueva funcionalidad'`)
+4. **Push** a la rama (`git push origin feature/nueva-funcionalidad`)
+5. **Crear Pull Request**
+
+### Estándares de Código
+- C++17 estándar
+- Comentarios en español para lógica de negocio
+- Commits en inglés
+- Tests para nuevas funcionalidades
+
+## 📄 Licencia
+
+Este proyecto está licenciado bajo la Licencia MIT - ver archivo [LICENSE](LICENSE) para detalles.
+
+## 👥 Autores
+
+- **Jose** - *Desarrollo principal* - [GitHub](https://github.com/tu-usuario)
+
+## 🙏 Agradecimientos
+
+- **PetroSantander** - Por el soporte al proyecto
+- **open62541** - Por la excelente biblioteca OPC-UA
+- **nlohmann/json** - Por la biblioteca JSON para C++
+
+## 📞 Soporte
+
+Para soporte técnico o consultas:
+
+- **Email**: soporte@petrosantander.com
+- **Issues**: [GitHub Issues](https://github.com/tu-usuario/pac_to_opcua/issues)
+- **Wiki**: [Documentación completa](https://github.com/tu-usuario/pac_to_opcua/wiki)
+
+---
+
+**🏭 Desarrollado para PetroSantander SCADA System**
+
+*Un puente confiable entre controladores PAC y sistemas OPC-UA*
