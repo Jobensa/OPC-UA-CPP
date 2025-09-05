@@ -1,0 +1,242 @@
+# ============== ARCHIVOS COMPILADOS C++ ==============
+# Ejecutables
+pac_to_opcua
+*.exe
+*.out
+*.app
+
+# Archivos objeto
+*.o
+*.obj
+*.lo
+*.la
+*.al
+*.libs
+*.so
+*.so.*
+*.dylib
+*.dll
+
+# Archivos de compilación
+*.d
+*.slo
+*.ko
+*.mod
+
+# ============== CMAKE ==============
+# Directorio de build
+build/
+Build/
+BUILD/
+cmake-build-*/
+
+# Archivos CMake generados
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# CTest
+Testing/
+CTestTestfile.cmake
+
+# ============== DEPURACIÓN ==============
+# Archivos de debug
+*.dSYM/
+*.su
+*.idb
+*.pdb
+core
+core.*
+
+# Archivos GDB
+.gdb_history
+gmon.out
+
+# Valgrind
+*.memcheck
+*.helgrind
+*.cachegrind
+*.callgrind
+
+# ============== IDE / EDITORES ==============
+# Visual Studio Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/c_cpp_properties.json
+
+# Visual Studio
+.vs/
+*.vcxproj*
+*.sln
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# CLion
+.idea/
+cmake-build-*/
+
+# Vim
+*.swp
+*.swo
+*~
+.netrwhist
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# ============== LOGS Y TEMPORALES ==============
+# Archivos de log
+*.log
+logs/
+log/
+
+# Archivos temporales
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+
+# Core dumps
+*.core
+
+# ============== DEPENDENCIAS ==============
+# pkg-config
+*.pc.in
+*.pc
+
+# Autotools
+.deps/
+.libs/
+*.la
+*.lo
+aclocal.m4
+autom4te.cache/
+config.guess
+config.h.in
+config.log
+config.status
+config.sub
+configure
+depcomp
+install-sh
+libtool
+ltmain.sh
+missing
+stamp-h1
+
+# ============== ARCHIVOS DEL SISTEMA ==============
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Linux
+*~
+
+# ============== ARCHIVOS DE CONFIGURACIÓN LOCAL ==============
+# Archivos de configuración específicos del entorno
+config_local.json
+.env
+.env.local
+.env.*.local
+
+# Archivos de configuración de desarrollo
+dev_config.json
+test_config.json
+
+# ============== DOCUMENTACIÓN GENERADA ==============
+# Doxygen
+doc/html/
+doc/latex/
+doc/man/
+doc/xml/
+
+# Sphinx
+_build/
+_static/
+_templates/
+
+# ============== CERTIFICADOS Y CLAVES ==============
+# Certificados SSL/TLS (importante para OPC-UA)
+*.pem
+*.key
+*.crt
+*.cert
+*.p12
+*.pfx
+
+# Archivos de configuración con credenciales
+*password*
+*secret*
+*credentials*
+
+# ============== ARCHIVOS DE PRUEBA ==============
+# Datos de prueba
+test_data/
+sample_data/
+*.test
+
+# Archivos de coverage
+*.gcov
+*.gcda
+*.gcno
+coverage/
+htmlcov/
+
+# ============== ARCHIVOS ESPECÍFICOS DEL PROYECTO ==============
+# Si tienes archivos específicos que no quieres versionar
+# (descomenta según necesites)
+
+# Archivos de configuración específicos del PAC
+# pac_config_*.json
+
+# Archivos de backup de configuración
+# *.json.bak
+
+# Datos temporales del PAC
+# pac_data/
+# temp_readings/
+
+# ============== PERMITIR ARCHIVOS IMPORTANTES ==============
+# Asegurar que estos archivos SÍ se incluyan
+!.gitignore
+!.gitkeep
+!README.md
+!LICENSE
+!CMakeLists.txt
+!*.h
+!*.cpp
+!*.c
+!tags.json
+!Makefile.original
