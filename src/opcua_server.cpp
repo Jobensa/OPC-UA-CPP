@@ -573,7 +573,7 @@ void processConfigIntoVariables()
 }
 // ...existing code... (líneas 380-480, reemplazar writeCallback actual)
 
-// 🔧 WRITECALLBACK PORTADO DE v1.0.0 - FUNCIONABA PERFECTAMENTE
+// 🔧 WRITECALLBACK CORREGIDO - USAR STRING NODEIDS
 static void writeCallback(UA_Server *server,
                          const UA_NodeId *sessionId,
                          void *sessionContext,
@@ -590,33 +590,34 @@ static void writeCallback(UA_Server *server,
     
     LOG_INFO("✅ ESCRITURA DE CLIENTE CONFIRMADA (NamespaceIndex≠0) - PROCESANDO");
     
-    
     // ✅ VALIDACIONES BÁSICAS
     if (!server || !nodeId || !data || !data->value.data) {
         LOG_ERROR("Parámetros inválidos en writeCallback");
         return;
     }
 
-    // 🔧 MANEJAR NODEID NUMÉRICO (COMO EN v1.0.0)
-    if (nodeId->identifierType != UA_NODEIDTYPE_NUMERIC) {
-        LOG_ERROR("Tipo de NodeId no soportado (esperado numérico)");
+    // 🔧 MANEJAR NODEID STRING (COMO SE CREARON LOS NODOS)
+    if (nodeId->identifierType != UA_NODEIDTYPE_STRING) {
+        LOG_ERROR("Tipo de NodeId no soportado (esperado STRING)");
         return;
     }
 
-    uint32_t numericNodeId = nodeId->identifier.numeric;
-    LOG_INFO("📝 ESCRITURA RECIBIDA en NodeId: " << numericNodeId);
+    // 🔧 OBTENER NodeId STRING
+    std::string nodeIdStr((char*)nodeId->identifier.string.data, 
+                         nodeId->identifier.string.length);
+    LOG_INFO("📝 ESCRITURA RECIBIDA en NodeId: " << nodeIdStr);
 
-    // 🔍 BUSCAR VARIABLE POR NODEID NUMÉRICO
+    // 🔍 BUSCAR VARIABLE POR NodeId STRING (opcua_name)
     Variable *var = nullptr;
     for (auto &v : config.variables) {
-        if (v.has_node && v.node_id == (int)numericNodeId) {
+        if (v.has_node && v.opcua_name == nodeIdStr) {
             var = &v;
             break;
         }
     }
 
     if (!var) {
-        LOG_ERROR("Variable no encontrada para NodeId: " << numericNodeId);
+        LOG_ERROR("Variable no encontrada para NodeId: " << nodeIdStr);
         return;
     }
 
@@ -625,13 +626,18 @@ static void writeCallback(UA_Server *server,
         return;
     }
 
+    LOG_INFO("Variable encontrada: " << var->opcua_name << 
+             " | PAC: " << var->pac_source << 
+             " | Tipo: " << (var->type == Variable::FLOAT ? "FLOAT" : "INT32") <<
+             " | Tag: " << var->tag_name);
+
     // 🔒 VERIFICAR CONEXIÓN PAC
     if (!pacClient || !pacClient->isConnected()) {
         LOG_ERROR("PAC no conectado para escritura: " << var->opcua_name);
         return;
     }
 
-    LOG_INFO("✅ Procesando escritura para: " << var->opcua_name << " (PAC: " << var->pac_source << ")");
+    LOG_INFO("✅ PAC conectado, procesando escritura para: " << var->opcua_name);
 
     // 🎯 PROCESAR ESCRITURA SEGÚN TIPO
     bool write_success = false;
@@ -643,16 +649,19 @@ static void writeCallback(UA_Server *server,
             
             // 🔧 ESCRIBIR AL PAC USANDO FUNCIONES EXISTENTES
             if (var->tag_name == "SimpleVars") {
-                // Variable simple
+                LOG_INFO("🔀 RUTA: SimpleVar FLOAT");
                 write_success = pacClient->writeSingleFloatVariable(var->pac_source, value);
+                LOG_INFO("Resultado SimpleVar: " << (write_success ? "ÉXITO" : "FALLO"));
             } else {
+                LOG_INFO("🔀 RUTA: Tabla FLOAT");
                 // Variable de tabla por índice
                 size_t pos = var->pac_source.find(':');
                 if (pos != string::npos) {
                     string tableName = var->pac_source.substr(0, pos);
                     int index = stoi(var->pac_source.substr(pos + 1));
+                    LOG_INFO("⚠️ EJECUTANDO writeFloatTableIndex('" << tableName << "', " << index << ", " << value << ")");
                     write_success = pacClient->writeFloatTableIndex(tableName, index, value);
-                    LOG_INFO("🔧 Escribiendo tabla: " << tableName << "[" << index << "] = " << value);
+                    LOG_INFO("Resultado Tabla FLOAT: " << (write_success ? "ÉXITO" : "FALLO"));
                 }
             }
         } else {
@@ -665,16 +674,19 @@ static void writeCallback(UA_Server *server,
             
             // 🔧 ESCRIBIR AL PAC USANDO FUNCIONES EXISTENTES
             if (var->tag_name == "SimpleVars") {
-                // Variable simple
+                LOG_INFO("🔀 RUTA: SimpleVar INT32");
                 write_success = pacClient->writeSingleInt32Variable(var->pac_source, value);
+                LOG_INFO("Resultado SimpleVar: " << (write_success ? "ÉXITO" : "FALLO"));
             } else {
+                LOG_INFO("🔀 RUTA: Tabla INT32");
                 // Variable de tabla por índice
                 size_t pos = var->pac_source.find(':');
                 if (pos != string::npos) {
                     string tableName = var->pac_source.substr(0, pos);
                     int index = stoi(var->pac_source.substr(pos + 1));
+                    LOG_INFO("⚠️ EJECUTANDO writeInt32TableIndex('" << tableName << "', " << index << ", " << value << ")");
                     write_success = pacClient->writeInt32TableIndex(tableName, index, value);
-                    LOG_INFO("🔧 Escribiendo tabla: " << tableName << "[" << index << "] = " << value);
+                    LOG_INFO("Resultado Tabla INT32: " << (write_success ? "ÉXITO" : "FALLO"));
                 }
             }
         } else {
@@ -683,10 +695,15 @@ static void writeCallback(UA_Server *server,
     }
 
     // ✅ RESULTADO FINAL
+    LOG_INFO("===== RESULTADO FINAL =====");
+    LOG_INFO("Variable: " << var->opcua_name);
+    LOG_INFO("PAC Source: " << var->pac_source);
+    LOG_INFO("Write Success: " << (write_success ? "SÍ" : "NO"));
+    
     if (write_success) {
-        LOG_INFO("✅ Escritura exitosa: " << var->opcua_name);
+        LOG_INFO("✅ Escritura exitosa al PAC: " << var->opcua_name);
     } else {
-        LOG_ERROR("❌ Error en escritura: " << var->opcua_name);
+        LOG_ERROR("❌ Error en escritura al PAC: " << var->opcua_name);
     }
 }
 
@@ -967,7 +984,7 @@ void updateData()
 
                 // Verificar si es variable de tabla o simple
                 size_t pos = var.pac_source.find(':');
-                if (pos != string::npos)
+                if (pos != std::string::npos)
                 {
                     // Variable de tabla
                     string table = var.pac_source.substr(0, pos);
@@ -1278,6 +1295,7 @@ bool ServerInit()
 
     // Inicializar cliente PAC
     pacClient = std::make_unique<PACControlClient>(config.pac_ip, config.pac_port);
+    //enableWriteCallbacksOnce();
 
     LOG_INFO("✅ Servidor OPC-UA inicializado correctamente");
     return true;
@@ -1364,7 +1382,8 @@ void enableWriteCallbacksOnce()
         callback.onRead = readCallback;
         callback.onWrite = writeCallback;
         
-        UA_NodeId nodeId = UA_NODEID_NUMERIC(1, var.node_id);
+       // UA_NodeId nodeId = UA_NODEID_NUMERIC(1, var.node_id);
+       UA_NodeId nodeId = UA_NODEID_STRING(1, const_cast<char *>(var.opcua_name.c_str()));
         UA_StatusCode cbResult = UA_Server_setVariableNode_valueCallback(server, nodeId, callback);
             
         if (cbResult == UA_STATUSCODE_GOOD) {
@@ -1590,7 +1609,7 @@ bool isWriteFromClient(const UA_NodeId *sessionId) {
     if (sessionId->namespaceIndex == 0) {
         LOG_DEBUG("🔍 NamespaceIndex=0 - Escritura INTERNA del servidor");
         return false;
-    } else if (sessionId->namespaceIndex == 1) {
+    } else if (sessionId->namespaceIndex != 0) {
         LOG_DEBUG("🔍 NamespaceIndex=1 - Escritura de CLIENTE EXTERNO");
         return true;
     }
