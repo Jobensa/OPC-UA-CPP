@@ -582,17 +582,14 @@ static void writeCallback(UA_Server *server,
                          const UA_NumericRange *range,
                          const UA_DataValue *data) {
     
-    // 🔍 IGNORAR ESCRITURAS INTERNAS DEL SERVIDOR
-    if (server_writing_internally.load()) {
-        LOG_DEBUG("📝 Escritura interna detectada - no propagar al PAC");
-        return;
+    // 🎯 DETECCIÓN PERFECTA POR NAMESPACEINDEX
+    if (!isWriteFromClient(sessionId)) {
+        LOG_DEBUG("📝 Escritura interna detectada (NamespaceIndex=0) - IGNORANDO");
+        return; // ← NO procesar escrituras internas
     }
-
-    // 🔒 EVITAR PROCESAMIENTO DURANTE ACTUALIZACIONES
-    if (updating_internally.load()) {
-        LOG_ERROR("Escritura rechazada: servidor actualizando");
-        return;
-    }
+    
+    LOG_INFO("✅ ESCRITURA DE CLIENTE CONFIRMADA (NamespaceIndex≠0) - PROCESANDO");
+    
     
     // ✅ VALIDACIONES BÁSICAS
     if (!server || !nodeId || !data || !data->value.data) {
@@ -1580,3 +1577,23 @@ void writeDefaultValuesToWritableVariables()
     LOG_INFO("📝 Valores por defecto escritos: " << defaultsWritten << " variables escribibles");
 }
 
+// 🔧 FUNCIÓN PERFECTA PARA DETECTAR ORIGEN (solo agregar esta función)
+bool isWriteFromClient(const UA_NodeId *sessionId) {
+    if (!sessionId) {
+        LOG_DEBUG("🔍 Sin SessionId - Escritura del servidor");
+        return false;
+    }
+    
+    // 🎯 LA CLAVE: NamespaceIndex
+    // - namespaceIndex = 0 → Escrituras INTERNAS del servidor
+    // - namespaceIndex = 1 → Escrituras de CLIENTES EXTERNOS
+    if (sessionId->namespaceIndex == 0) {
+        LOG_DEBUG("🔍 NamespaceIndex=0 - Escritura INTERNA del servidor");
+        return false;
+    } else if (sessionId->namespaceIndex == 1) {
+        LOG_DEBUG("🔍 NamespaceIndex=1 - Escritura de CLIENTE EXTERNO");
+        return true;
+    }
+    
+    return true; // Por defecto, asumir cliente si no es namespace 0
+}

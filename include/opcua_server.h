@@ -30,6 +30,7 @@ void enableWriteCallbacks();
 void enableWriteCallbacksOnce();
 void performImmediateDataUpdate();
 void writeDefaultValuesToWritableVariables();
+bool isWriteFromClient(const UA_NodeId *sessionId);
 
 
 #endif // OPCUA_SERVER_H
