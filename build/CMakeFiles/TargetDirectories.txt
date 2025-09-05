@@ -1,3 +1,0 @@
-/media/jose/Datos/Data/Proyectos/PetroSantander/SCADA/pac_to_opcua/build/CMakeFiles/pac_to_opcua.dir
-/media/jose/Datos/Data/Proyectos/PetroSantander/SCADA/pac_to_opcua/build/CMakeFiles/edit_cache.dir
-/media/jose/Datos/Data/Proyectos/PetroSantander/SCADA/pac_to_opcua/build/CMakeFiles/rebuild_cache.dir
